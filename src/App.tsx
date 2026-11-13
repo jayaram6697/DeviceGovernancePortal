@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Smartphone,
+  TrendingUp,
   Users,
   X,
 } from 'lucide-react'
@@ -43,6 +44,7 @@ type DeviceKind = 'Laptop' | 'Phone' | 'Tablet'
 type ActivitySignal = {
   label: string
   value: string | null
+  occurredAt: string | null
   source: string
   icon: LucideIcon
   note?: string
@@ -86,10 +88,11 @@ function formatRelativeTime(value: string | null): string | null {
   if (!value) return null
   const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60_000))
   if (minutes < 1) return 'Just now'
-  if (minutes < 60) return `${minutes} min ago`
+  if (minutes < 60) return `${minutes} mins ago`
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} hr ago`
-  return `${Math.floor(hours / 24)} day ago`
+  if (hours < 24) return `${hours} hrs ago`
+  const days = Math.floor(hours / 24)
+  return days === 1 ? 'Yesterday' : `${days} days ago`
 }
 
 function mapDevice(record: ApiDeviceRecord): Device {
@@ -97,6 +100,7 @@ function mapDevice(record: ApiDeviceRecord): Device {
   const signal = (label: string, at: string | null, source: string, icon: LucideIcon): ActivitySignal => ({
     label,
     value: formatRelativeTime(at),
+    occurredAt: at,
     source,
     icon,
     ...(at === null && label === 'Explicit logout' ? { note: 'No logout event recorded' } : {}),
@@ -161,7 +165,50 @@ function DeviceGlyph({ kind }: { kind: DeviceKind }) {
   return <span className={`device-glyph glyph-${kind.toLowerCase()}`}><Icon size={18} strokeWidth={1.8} /></span>
 }
 
+function LoginPage({ onSignIn }: { onSignIn: () => void }) {
+  const [organization, setOrganization] = useState('Acme Corporation')
+  const [email, setEmail] = useState('admin@acme.com')
+  const [password, setPassword] = useState('')
+  const [workspace, setWorkspace] = useState('Engineering')
+  const [rememberDevice, setRememberDevice] = useState(false)
+  const [helpMessage, setHelpMessage] = useState('')
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    onSignIn()
+  }
+
+  return <main className="login-screen" aria-current="page">
+    <div className="login-glow login-glow-left" />
+    <div className="login-glow login-glow-right" />
+    <section className="login-card" aria-labelledby="login-title">
+      <div className="login-brand-mark"><ShieldCheck size={25} strokeWidth={1.9} /></div>
+      <div className="login-brand-name">DeviceGate <span>MDM</span></div>
+      <p className="login-subtitle">Customer-Managed PWA Governance Platform</p>
+
+      <div className="login-heading"><span>WELCOME BACK</span><h1 id="login-title">Sign in to your workspace</h1><p>Use your administrator account to continue.</p></div>
+      <form className="login-form" onSubmit={submit} noValidate>
+        <label className="login-field"><span>Tenant / Organization</span><input value={organization} onChange={(event) => setOrganization(event.target.value)} placeholder="Acme Corporation" autoComplete="organization" /></label>
+        <label className="login-field"><span>Enterprise Email Address</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@acme.com" autoComplete="username" /></label>
+        <label className="login-field"><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" autoComplete="current-password" /></label>
+        <label className="login-field"><span>Workspace</span><select value={workspace} onChange={(event) => setWorkspace(event.target.value)}><option>Engineering</option><option>Operations UAE</option><option>Field Services</option></select></label>
+        <div className="login-options">
+          <label className="remember-option"><input type="checkbox" checked={rememberDevice} onChange={(event) => setRememberDevice(event.target.checked)} /><span>Remember device session</span></label>
+          <button type="button" className="forgot-password" onClick={() => setHelpMessage('Password resets are not configured in demo mode.')}>Forgot Password?</button>
+        </div>
+        {helpMessage && <p className="login-help-message" role="status">{helpMessage}</p>}
+        <button className="login-submit" type="submit"><span>Sign In to Console</span><ChevronRight size={17} /></button>
+      </form>
+
+      <div className="demo-helper"><span className="demo-helper-icon"><LockKeyhole size={15} /></span><p><strong>Demo Mode</strong><span>Enter any credentials or click “Sign In” to enter as Customer IT Administrator.</span></p></div>
+      <div className="login-footer"><Shield size={13} /><span>Protected by zero-trust security</span></div>
+    </section>
+  </main>
+}
+
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const [screen, setScreen] = useState<Screen>('approvals')
   const [devices, setDevices] = useState<Device[]>([])
   const [audit, setAudit] = useState<AuditEvent[]>([])
@@ -179,8 +226,10 @@ function App() {
   const [exportingAudit, setExportingAudit] = useState(false)
   const [remoteCommandDevice, setRemoteCommandDevice] = useState<Device | null>(null)
   const [remoteCommandInitial, setRemoteCommandInitial] = useState<RemoteCommand>('LOCK')
+  const profileMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (!isAuthenticated) return
     let cancelled = false
     const scope = getApiScope(tenant, workspace)
     setIsLoading(true)
@@ -205,7 +254,25 @@ function App() {
         if (!cancelled) setIsLoading(false)
       })
     return () => { cancelled = true }
-  }, [tenant, workspace, reloadToken])
+  }, [isAuthenticated, tenant, workspace, reloadToken])
+
+  useEffect(() => {
+    if (!profileMenuOpen) return
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (profileMenuRef.current && event.target instanceof Node && !profileMenuRef.current.contains(event.target)) {
+        setProfileMenuOpen(false)
+      }
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setProfileMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [profileMenuOpen])
 
   const pendingCount = devices.filter((device) => device.approval === 'Pending').length
   const selectedDevice = devices.find((device) => device.recordId === selectedDeviceId) ?? devices[0]
@@ -307,12 +374,19 @@ function App() {
     setMobileNavOpen(false)
   }
 
+  function signOut() {
+    setProfileMenuOpen(false)
+    setIsAuthenticated(false)
+  }
+
+  if (!isAuthenticated) return <LoginPage onSignIn={() => setIsAuthenticated(true)} />
+
   return (
-    <div className="app-shell">
+    <div className="app-shell app-shell-enter">
       <aside className={`sidebar ${mobileNavOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-lockup">
           <div className="brand-mark"><ShieldCheck size={19} strokeWidth={2.2} /></div>
-          <div><span className="brand-name">northstar</span><span className="brand-product">DEVICE GOVERNANCE</span></div>
+          <div><span className="brand-name" style={{ color: '#ffffff' }}>DeviceGate</span><span className="brand-product">MDM DEVICE GOVERNANCE</span></div>
           <button className="icon-button mobile-close" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)}><X size={18} /></button>
         </div>
         <div className="tenant-switcher">
@@ -326,18 +400,37 @@ function App() {
         </div>
         <nav className="primary-nav" aria-label="Primary navigation">
           {navSections.map((section) => <div className="nav-group" key={section.title}>
-            <div className="nav-heading">{section.title}</div>
+            <div className="nav-heading" style={{ color: '#ffffff' }}>{section.title}</div>
             {section.links.map(({ label, screen: target, icon: Icon, badge }) => {
               const isActive = target === screen || (screen === 'detail' && label === 'Devices')
-              return <button className={`nav-link ${isActive ? 'nav-active' : ''}`} key={label} onClick={() => navigate(target)}>
-                <Icon size={17} strokeWidth={1.8} /><span>{label}</span>{badge && <span className="nav-badge">{pendingCount}</span>}
+              return <button
+                className={`nav-link ${isActive ? 'nav-active' : ''}`}
+                key={label}
+                onClick={() => navigate(target)}
+                aria-current={isActive ? 'page' : undefined}
+                style={isActive
+                  ? { backgroundColor: '#4f46e5', color: '#ffffff', fontWeight: 700 }
+                  : { color: '#ffffff' }}
+              >
+                <Icon size={17} strokeWidth={1.8} style={{ color: '#ffffff', stroke: '#ffffff' }} />
+                <span style={{ color: '#ffffff', fontWeight: 600 }}>{label}</span>
+                {badge && <span className="nav-badge" style={{ color: '#ffffff' }}>{pendingCount}</span>}
               </button>
             })}
           </div>)}
         </nav>
         <div className="sidebar-bottom">
           <div className={`sync-mini ${isMdmSyncFresh ? 'sync-mini-current' : ''}`}><span className="sync-mini-dot" /><span>{isMdmSyncFresh ? 'Intune sync current' : 'Intune sync delayed'}</span><span className="sync-mini-time">{formatRelativeTime(latestMdmSyncAt) ?? '—'}</span></div>
-          <button className="profile-row"><span className="profile-avatar">MP</span><span className="profile-copy"><strong>Mina Patel</strong><small>Customer admin</small></span><MoreHorizontal size={18} /></button>
+          <div className="profile-menu-wrapper" ref={profileMenuRef}>
+            <button type="button" className="profile-row" aria-label="Open user profile menu" aria-haspopup="menu" aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen((open) => !open)}>
+              <span className="profile-avatar">MP</span><span className="profile-copy"><strong>Mina Patel</strong><small>Customer IT Administrator</small></span><MoreHorizontal size={18} />
+            </button>
+            {profileMenuOpen && <div className="profile-popover" role="menu" aria-label="User profile options">
+              <div className="profile-popover-details"><span className="profile-popover-avatar">MP</span><span className="profile-popover-copy"><strong>Mina Patel</strong><small>admin@acme.com</small><span className="profile-role-badge">Customer IT Administrator</span></span></div>
+              <div className="profile-popover-divider" />
+              <button type="button" className="profile-signout" role="menuitem" onClick={signOut}><LogOut size={16} />Sign Out</button>
+            </div>}
+          </div>
         </div>
       </aside>
       {mobileNavOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
@@ -351,6 +444,7 @@ function App() {
             <button className="global-search" onClick={() => document.getElementById('page-search')?.focus()}><Search size={16} /><span>Search anything</span><kbd>⌘ K</kbd></button>
             <button className="icon-button topbar-help" aria-label="Help"><CircleHelp size={18} /></button>
             <button className="icon-button notification-button" aria-label="Notifications"><Bell size={18} /><span /></button>
+            <div className="topbar-account"><span className="profile-avatar">MP</span><button className="sign-out-button" onClick={signOut}><LogOut size={14} />Sign Out</button></div>
           </div>
         </header>
 
@@ -365,14 +459,14 @@ function App() {
           {apiError && <div className="api-error" role="alert"><span>{apiError}</span><button onClick={() => setReloadToken((current) => current + 1)}>Retry</button></div>}
           {isLoading && <div className="loading-state" role="status">Loading devices for {workspace}…</div>}
 
-          {screen === 'approvals' && <ApprovalsPage devices={devices} onOpenDevice={openDevice} onReview={(device) => setReviewDeviceId(device.id)} />}
+          {screen === 'approvals' && <ApprovalsPage devices={devices} tenant={tenant} workspace={workspace} onOpenDevice={openDevice} onReview={(device) => setReviewDeviceId(device.id)} />}
           {screen === 'devices' && <DevicesPage devices={devices} onOpenDevice={openDevice} onRemoteCommand={openRemoteCommand} />}
           {screen === 'detail' && detailLoading && <div className="loading-state" role="status">Loading device details…</div>}
           {screen === 'detail' && !detailLoading && selectedDevice && <DeviceDetail device={selectedDevice} onBack={() => navigate('devices')} onRemoteCommand={openRemoteCommand} />}
           {screen === 'audit' && <AuditPage events={audit} onExport={exportAudit} exporting={exportingAudit} />}
           {screen === 'access' && <PwaAccessPage devices={devices} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} onEvaluate={testPwaAccess} />}
         </main>
-        <footer className="page-footer"><span>Northstar Device Governance</span><span>Tenant scope: {tenant} <i /> Workspace: {workspace}</span></footer>
+        <footer className="page-footer"><span>DeviceGate Device Governance</span><span>Tenant scope: {tenant} <i /> Workspace: {workspace}</span></footer>
       </div>
 
       {reviewDevice && <ReviewDialog device={reviewDevice} onClose={() => setReviewDeviceId(null)} onOpenDevice={openDevice} onSubmit={submitDecision} />}
@@ -424,6 +518,7 @@ function PwaAccessPage({
 
   return <>
     <PageHeading eyebrow="ACCESS CONTROL / ZERO-TRUST EVALUATION" title="PWA Access Simulator" description="Evaluate the selected user's device posture before granting access to a PWA." />
+    <div className="simulator-layout">
     <section className="panel access-simulator">
       <div className="panel-heading"><div><h2>Simulate an access request</h2><p>Each test records an access decision in the workspace audit log.</p></div><span className="source-chip"><Shield size={14} /> Zero trust</span></div>
       <div className="access-form">
@@ -432,9 +527,9 @@ function PwaAccessPage({
           {devices.map((device) => <option key={device.recordId} value={device.recordId}>{device.id} · {device.name} — {device.owner}</option>)}
         </select></label>
         <label className="access-field"><span>Requested application</span><select value={requestedAppId} onChange={(event) => { setRequestedAppId(event.target.value); setResult(null); setError('') }} disabled={isEvaluating}>
-          <option value="com.northstar.workspace">Northstar Workspace</option>
-          <option value="com.northstar.support">Northstar Support</option>
-          <option value="com.northstar.analytics">Northstar Analytics</option>
+          <option value="com.northstar.workspace">DeviceGate Workspace</option>
+          <option value="com.northstar.support">DeviceGate Support</option>
+          <option value="com.northstar.analytics">DeviceGate Analytics</option>
         </select></label>
         {selected && <div className="access-subject"><DeviceGlyph kind={selected.kind} /><div><strong>{selected.owner}</strong><span>{selected.email} · {selected.workspace}</span></div><span className="access-subject-id">User ID: {selected.ownerUserId}</span></div>}
         <button className="button button-primary access-test-button" onClick={() => void evaluate()} disabled={!selected || isEvaluating}>
@@ -442,12 +537,37 @@ function PwaAccessPage({
         </button>
       </div>
     </section>
+    <aside className="phone-preview" aria-label="PWA mobile preview">
+        <div className="phone-frame">
+          <div className="phone-notch" />
+          <div className="phone-screen">
+            <div className="phone-status"><span>9:41</span><span>•••</span></div>
+            <div className="phone-app-brand"><span className="phone-app-icon"><ShieldCheck size={17} /></span><span>DeviceGate<span>WORKSPACE</span></span></div>
+            <div className="phone-welcome">Good morning,<strong>{selected?.owner.split(' ')[0] ?? 'there'}</strong></div>
+            <div className="phone-workspace"><span>ACTIVE WORKSPACE</span><strong>{selected?.workspace ?? 'Workspace'}</strong><span className="phone-online"><i /> Secure connection</span></div>
+            <div className="phone-preview-foot"><LockKeyhole size={13} /> Protected by device posture</div>
+          </div>
+        </div>
+        <span className="phone-caption">LIVE PWA PREVIEW</span>
+    </aside>
+    </div>
     {error && <div className="api-error access-error" role="alert"><span>{error}</span></div>}
     {result && <section className={`access-result ${result.decision === 'ALLOW' ? 'access-allowed' : 'access-denied'}`} aria-live="polite">
       <div className="access-result-icon">{result.decision === 'ALLOW' ? <ShieldCheck size={27} /> : <ShieldAlert size={27} />}</div>
       <div className="access-result-content">
-        <div className="access-result-heading"><span className="eyebrow">PWA ACCESS DECISION</span><strong>{result.decision === 'ALLOW' ? 'ACCESS GRANTED' : 'ACCESS DENIED'}</strong></div>
-        <p>{result.decision === 'ALLOW' ? 'Device identity and compliance checks passed.' : <>Access was blocked: <code>{result.reasonCode}</code></>}</p>
+        <div className="access-result-heading"><span className="eyebrow">PWA ACCESS DECISION</span><strong>{result.decision === 'ALLOW' ? 'Access Authorized' : 'Access Denied'}</strong></div>
+        <p>{result.decision === 'ALLOW'
+          ? 'Device identity and compliance checks passed.'
+          : result.reasonCode === 'DEVICE_NOT_APPROVED'
+            ? 'Access Blocked: This device requires IT administrator approval before accessing this workspace.'
+            : result.reasonCode === 'DEVICE_NON_COMPLIANT'
+              ? 'Access Blocked: This device does not meet the workspace security requirements.'
+              : result.reasonCode === 'COMPLIANCE_DATA_STALE'
+                ? 'Access Blocked: Device security information is out of date. Sync the device and try again.'
+                : result.reasonCode === 'DEVICE_LIFECYCLE_INACTIVE'
+                  ? 'Access Blocked: This device is inactive and cannot access the workspace.'
+                  : 'Access was blocked because this device does not meet the workspace access requirements.'}</p>
+        {result.decision === 'DENY' && <div className="access-reason-code"><span>Reason code</span><code>{result.reasonCode}</code></div>}
         {result.grant && <div className="access-grant">
           <div><span>Mock grant token</span><code>{result.grant.token}</code></div>
           <div><span>Expires</span><strong>{new Date(result.grant.expiresAt).toLocaleTimeString()}</strong></div>
@@ -463,7 +583,7 @@ function Metric({ label, value, note, icon: Icon, accent }: { label: string; val
   return <div className="metric"><div className={`metric-icon metric-${accent}`}><Icon size={17} /></div><div className="metric-content"><span>{label}</span><strong>{value}</strong><small>{note}</small></div></div>
 }
 
-function ApprovalsPage({ devices, onOpenDevice, onReview }: { devices: Device[]; onOpenDevice: (device: Device) => void; onReview: (device: Device) => void }) {
+function ApprovalsPage({ devices, tenant, workspace, onOpenDevice, onReview }: { devices: Device[]; tenant: string; workspace: string; onOpenDevice: (device: Device) => void; onReview: (device: Device) => void }) {
   const [search, setSearch] = useState('')
   const [compliance, setCompliance] = useState('All posture states')
   const [approval, setApproval] = useState('Pending')
@@ -475,11 +595,27 @@ function ApprovalsPage({ devices, onOpenDevice, onReview }: { devices: Device[];
       && (compliance === 'All posture states' || device.compliance === compliance)
   })
   const nonCompliant = pending.filter((device) => device.compliance === 'Non-compliant' || device.compliance === 'Stale').length
+  const compliantCount = devices.filter((device) => device.compliance === 'Compliant').length
+  const complianceRate = devices.length ? (compliantCount / devices.length * 100).toFixed(1) : '0.0'
+  const today = new Date().toDateString()
+  const activeToday = devices.filter((device) => {
+    const session = device.signals.find((signal) => signal.label === 'Session start')
+    return session?.occurredAt && new Date(session.occurredAt).toDateString() === today
+  }).length
 
   return <>
-    <PageHeading eyebrow="ACCESS CONTROL / REVIEW QUEUE" title="Pending approvals" description="Review device identity and posture before making an access decision.">
-      <button className="button button-secondary" onClick={() => setSearch('')}><Download size={16} /> Export queue</button>
-    </PageHeading>
+    <header className="executive-header">
+      <div><span className="eyebrow">YOUR SECURITY OVERVIEW</span><h1>Device Governance Control Center</h1><p>A clear view of your managed device posture and access decisions.</p></div>
+      <div className="scope-tags"><span><span className="scope-tag-label">TENANT</span>{tenant}</span><span><span className="scope-tag-label">WORKSPACE</span><span className="workspace-indicator" />{workspace}</span></div>
+    </header>
+    <section className="executive-metrics" aria-label="Executive device governance overview">
+      <article className="executive-metric"><span className="executive-metric-icon metric-blue"><Smartphone size={18} /></span><div><span>Total managed devices</span><strong>{devices.length.toLocaleString()}</strong><small><TrendingUp size={13} /> Live inventory in this workspace</small></div></article>
+      <article className="executive-metric"><span className="executive-metric-icon metric-green"><ShieldCheck size={18} /></span><div><span>Posture compliance rate</span><strong>{complianceRate}<small>%</small></strong><small>Devices meeting security policy</small></div></article>
+      <article className={`executive-metric ${pending.length > 0 ? 'executive-metric-alert' : ''}`}><span className="executive-metric-icon metric-amber"><Clock3 size={18} /></span><div><span>Pending IT review</span><strong>{pending.length.toLocaleString()}</strong><small>{pending.length > 0 ? 'Requires administrator attention' : 'All caught up'}</small></div></article>
+      <article className="executive-metric"><span className="executive-metric-icon metric-violet"><Users size={18} /></span><div><span>Active today</span><strong>{activeToday.toLocaleString()}</strong><small>Devices with a PWA session today</small></div></article>
+    </section>
+    {pending.length > 0 && <section className="attention-banner" role="status"><span className="attention-icon"><AlertTriangle size={19} /></span><div><strong>Needs Your Attention</strong><span>{pending.length} device{pending.length === 1 ? '' : 's'} {pending.length === 1 ? 'is' : 'are'} waiting for IT approval.</span></div><button className="button button-review" onClick={() => onReview(pending[0])}>Review Now <ChevronRight size={15} /></button></section>}
+    <div className="page-heading approvals-heading"><div><div className="eyebrow">ACCESS CONTROL / REVIEW QUEUE</div><h2>Device approvals</h2><p>Review device identity and posture before making an access decision.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={() => setSearch('')}><Download size={16} /> Export queue</button></div></div>
     <section className="metrics-grid" aria-label="Approval queue summary">
       <Metric label="Awaiting review" value={String(pending.length).padStart(2, '0')} note="Across all workspaces" icon={Clock3} accent="coral" />
       <Metric label="Posture needs attention" value={String(nonCompliant).padStart(2, '0')} note="Non-compliant or stale" icon={ShieldAlert} accent="amber" />
@@ -507,7 +643,7 @@ function ApprovalsPage({ devices, onOpenDevice, onReview }: { devices: Device[];
       </tbody></table></div>
       <div className="table-footer"><span>Showing <strong>{filtered.length}</strong> of <strong>{devices.length}</strong> devices in current scope</span><div className="pagination"><button disabled aria-label="Previous page"><ArrowLeft size={14} /></button><span>1</span><button disabled aria-label="Next page"><ChevronRight size={14} /></button></div></div>
     </section>
-    <div className="queue-footnote"><ShieldCheck size={15} /><span>Every decision requires a justification and is written to the append-only audit log.</span><button onClick={() => document.querySelector<HTMLElement>('.nav-link:nth-child(1)')?.click()}>Approval policy <ArrowUpRight size={13} /></button></div>
+    <div className="queue-footnote"><ShieldCheck size={15} /><span>Every decision requires a justification and is written to the append-only audit log.</span></div>
   </>
 }
 
@@ -526,12 +662,25 @@ function DevicesPage({ devices, onOpenDevice, onRemoteCommand }: { devices: Devi
       && (state === 'All approval states' || device.approval === state))
   return <>
     <PageHeading eyebrow="ACCESS CONTROL / INVENTORY" title="Device inventory" description="Managed devices correlated through Microsoft Intune."><button className="button button-secondary"><Download size={16} /> Export inventory</button></PageHeading>
-    <section className="metrics-grid compact-metrics"><Metric label="Total devices" value="1,284" note="Across 3 workspaces" icon={Smartphone} accent="blue" /><Metric label="Approved" value="1,192" note="Access still posture-gated" icon={ShieldCheck} accent="green" /><Metric label="Needs review" value={String(devices.filter((device) => device.approval === 'Pending').length).padStart(2, '0')} note="Pending admin decision" icon={Clock3} accent="coral" /><Metric label="Non-compliant" value="18" note="Freshness checked per policy" icon={ShieldAlert} accent="amber" /></section>
+    <section className="metrics-grid compact-metrics"><Metric label="Total devices" value={devices.length.toLocaleString()} note="In the active workspace" icon={Smartphone} accent="blue" /><Metric label="Approved" value={devices.filter((device) => device.approval === 'Approved').length.toLocaleString()} note="Access still posture-gated" icon={ShieldCheck} accent="green" /><Metric label="Needs review" value={String(devices.filter((device) => device.approval === 'Pending').length).padStart(2, '0')} note="Pending admin decision" icon={Clock3} accent="coral" /><Metric label="Non-compliant" value={devices.filter((device) => device.compliance !== 'Compliant').length.toLocaleString()} note="Non-compliant or stale" icon={ShieldAlert} accent="amber" /></section>
     <section className="panel queue-panel"><div className="panel-heading"><div><h2>All devices</h2><p>Approval and compliance are tracked as independent lifecycle states.</p></div></div>
       <div className="table-toolbar"><label className="search-field"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, OS, approval state, or ID" /></label><label className="filter-select"><ListFilter size={15} /><select value={state} onChange={(event) => setState(event.target.value)} aria-label="Filter by approval state"><option>All approval states</option><option>Pending</option><option>Approved</option><option>Rejected</option><option>Suspended</option><option>Revoked</option></select><ChevronDown size={14} /></label></div>
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>DEVICE</th><th>OWNER</th><th>WORKSPACE</th><th>APPROVAL</th><th>COMPLIANCE</th><th>LIFECYCLE</th><th>INTUNE ID</th><th /></tr></thead><tbody>{filtered.map((device) => <tr key={device.id}>
-        <td><button className="device-cell" onClick={() => onOpenDevice(device)}><DeviceGlyph kind={device.kind} /><span><strong>{device.name}</strong><small>{device.id} <i /> {device.platform} {device.version}</small></span></button></td><td><span className="owner-cell"><strong>{device.owner}</strong><small>{device.email}</small></span></td><td><span className="workspace-cell"><span className="workspace-indicator" />{device.workspace}</span></td><td><ApprovalPill state={device.approval} /></td><td><CompliancePill state={device.compliance} /></td><td><span className={`lifecycle-pill lifecycle-${device.lifecycleState.toLowerCase()}`}>{device.lifecycleState}</span></td><td><span className="mono-id">{device.intuneId}</span></td><td><div className="inventory-actions"><button className="button button-tertiary" onClick={() => onRemoteCommand(device)}><MoreHorizontal size={14} /> Remote command</button><button className="icon-button" aria-label={`View ${device.name}`} onClick={() => onOpenDevice(device)}><ChevronRight size={17} /></button></div></td>
-      </tr>)}</tbody></table></div>
+      <div className="device-card-grid">{filtered.map((device) => {
+        const latestActivity = device.signals.reduce<string | null>((latest, signal) =>
+          signal.occurredAt && (!latest || new Date(signal.occurredAt) > new Date(latest)) ? signal.occurredAt : latest, null)
+        const initials = device.owner.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase()
+        return <article className="device-card" key={device.recordId}>
+          <div className="device-card-top"><DeviceGlyph kind={device.kind} /><span className="device-platform-tag">{device.platform} {device.version}</span><button className="icon-button" aria-label={`Remote actions for ${device.name}`} onClick={() => onRemoteCommand(device)}><MoreHorizontal size={17} /></button></div>
+          <button className="device-card-title" onClick={() => onOpenDevice(device)}><strong>{device.name}</strong><span>{device.id}</span></button>
+          <div className="device-card-owner"><span className="owner-avatar">{initials}</span><span><strong>{device.owner}</strong><small>{device.email}</small></span></div>
+          <div className="device-card-status"><ApprovalPill state={device.approval} /><CompliancePill state={device.compliance} /></div>
+          <details className="device-signals-disclosure">
+            <summary><span>7 last-used signals</span><ChevronDown size={14} /></summary>
+            <div className="device-signals-list">{device.signals.map((signal) => <div className="device-signal-item" key={signal.label}><span>{signal.label}</span><strong>{signal.value ?? 'Not recorded'}</strong></div>)}</div>
+          </details>
+          <div className="device-card-footer"><span className="device-last-activity"><Activity size={14} />{formatRelativeTime(latestActivity) ?? 'No recent activity'}</span><button className="button button-tertiary" onClick={() => onOpenDevice(device)}>Quick action <ChevronRight size={14} /></button></div>
+        </article>
+      })}{filtered.length === 0 && <div className="empty-devices">No devices match these filters.</div>}</div>
       <div className="table-footer"><span>Showing <strong>{filtered.length}</strong> device records in current scope</span><span>Updated just now</span></div>
     </section>
   </>

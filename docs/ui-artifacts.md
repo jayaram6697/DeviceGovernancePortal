@@ -8,7 +8,7 @@ An operational security console for customer IT administrators. The interface is
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ NORTHSTAR / Device Governance     Tenant: Acme  Workspace: Production   │
+│ DeviceGate / MDM DEVICE GOVERNANCE    Tenant: Acme  Workspace: Production │
 │ Search                                    Helpdesk Admin      Profile   │
 ├───────────────────┬──────────────────────────────────────────────────────┤
 │ Overview          │ SECURITY NOTICE  Intune sync is stale (last sync …) │
@@ -20,7 +20,11 @@ An operational security console for customer IT administrators. The interface is
 └───────────────────┴──────────────────────────────────────────────────────┘
 ```
 
-The sync notice remains prominent across protected administrative views. Tenant and workspace are visible at all times. Navigation labels map to the supplied UI catalog; Release 1 screens are Approvals, Devices, and Audit.
+The sync notice remains prominent across protected administrative views. Tenant and workspace are visible at all times. Navigation labels map to the supplied UI catalog; Release 1 screens are Approvals, Devices, PWA Access Simulator, and Audit.
+
+## Login and session
+
+The unauthenticated view presents a DeviceGate MDM login card for the Customer-Managed PWA Governance Platform. The demo accepts any credentials and opens the console as a Customer IT Administrator. Sign out returns immediately to the login screen.
 
 ## UI-008 Pending approvals
 
@@ -33,7 +37,7 @@ Pending approvals  12                         Search / status filters
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-Selecting a row opens a review dialog with owner and Intune correlation evidence, masked serial, compliance freshness, and the separate approval and compliance states. Approve and Reject require a non-empty justification before submission. The UI makes no access-grant promise from approval alone.
+Selecting a row opens a review dialog with owner and Intune correlation evidence, masked serial, compliance freshness, and the separate approval and compliance states. Approve and Reject require an actionable justification of at least 12 characters before submission. The UI makes no access-grant promise from approval alone.
 
 ## UI-009 Device details
 
@@ -46,6 +50,12 @@ Device identity and lifecycle states appear above a tabbed inspection surface. A
 5. Last protected API request (API gateway)
 6. Last session start (Session service)
 7. Last explicit logout (PWA; null when the browser closed)
+
+The inventory cards can expand to show all seven signals with their individual last-seen times.
+
+## PWA access simulator
+
+The simulator previews the selected device in a mobile frame. Evaluation displays an authorized or denied verdict; denied decisions include the plain-language explanation and API reason code.
 
 ## UI-026 Audit explorer
 
