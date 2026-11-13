@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "WDYx6YPrR8fSgchBdfAJZ4afT5T/oYDTbYJT8mRni4s=",
+  "Source": "DeviceGovernancePlatform.Server",
+  "BasePath": "_content/DeviceGovernancePlatform.Server",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}
