@@ -166,11 +166,8 @@ function DeviceGlyph({ kind }: { kind: DeviceKind }) {
 }
 
 function LoginPage({ onSignIn }: { onSignIn: () => void }) {
-  const [organization, setOrganization] = useState('Acme Corporation')
-  const [email, setEmail] = useState('admin@acme.com')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [workspace, setWorkspace] = useState('Engineering')
-  const [rememberDevice, setRememberDevice] = useState(false)
   const [helpMessage, setHelpMessage] = useState('')
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -184,24 +181,16 @@ function LoginPage({ onSignIn }: { onSignIn: () => void }) {
     <section className="login-card" aria-labelledby="login-title">
       <div className="login-brand-mark"><ShieldCheck size={25} strokeWidth={1.9} /></div>
       <div className="login-brand-name">DeviceGate <span>MDM</span></div>
-      <p className="login-subtitle">Customer-Managed PWA Governance Platform</p>
-
-      <div className="login-heading"><span>WELCOME BACK</span><h1 id="login-title">Sign in to your workspace</h1><p>Use your administrator account to continue.</p></div>
+      <div className="login-heading"><h1 id="login-title">Sign in to your account</h1></div>
       <form className="login-form" onSubmit={submit} noValidate>
-        <label className="login-field"><span>Tenant / Organization</span><input value={organization} onChange={(event) => setOrganization(event.target.value)} placeholder="Acme Corporation" autoComplete="organization" /></label>
-        <label className="login-field"><span>Enterprise Email Address</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@acme.com" autoComplete="username" /></label>
+        <label className="login-field"><span>Email Address</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" autoComplete="username" /></label>
         <label className="login-field"><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" autoComplete="current-password" /></label>
-        <label className="login-field"><span>Workspace</span><select value={workspace} onChange={(event) => setWorkspace(event.target.value)}><option>Engineering</option><option>Operations UAE</option><option>Field Services</option></select></label>
         <div className="login-options">
-          <label className="remember-option"><input type="checkbox" checked={rememberDevice} onChange={(event) => setRememberDevice(event.target.checked)} /><span>Remember device session</span></label>
-          <button type="button" className="forgot-password" onClick={() => setHelpMessage('Password resets are not configured in demo mode.')}>Forgot Password?</button>
+          <button type="button" className="forgot-password" onClick={() => setHelpMessage('Password resets are not configured in demo mode.')}>Forgot password?</button>
         </div>
         {helpMessage && <p className="login-help-message" role="status">{helpMessage}</p>}
-        <button className="login-submit" type="submit"><span>Sign In to Console</span><ChevronRight size={17} /></button>
+        <button className="login-submit" type="submit">Sign In</button>
       </form>
-
-      <div className="demo-helper"><span className="demo-helper-icon"><LockKeyhole size={15} /></span><p><strong>Demo Mode</strong><span>Enter any credentials or click “Sign In” to enter as Customer IT Administrator.</span></p></div>
-      <div className="login-footer"><Shield size={13} /><span>Protected by zero-trust security</span></div>
     </section>
   </main>
 }
