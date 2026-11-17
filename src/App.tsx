@@ -38,7 +38,7 @@ import type { AccessEvaluationResponse, ApiAuditRecord, ApiDeviceRecord, RemoteC
 
 type ApprovalState = 'Pending' | 'Approved' | 'Rejected' | 'Suspended' | 'Revoked'
 type ComplianceState = 'Compliant' | 'Non-compliant' | 'Stale'
-type Screen = 'approvals' | 'devices' | 'audit' | 'access' | 'detail'
+type Screen = 'identity' | 'scope' | 'approvals' | 'devices' | 'intune' | 'compliance' | 'access' | 'signals' | 'commands' | 'audit' | 'detail'
 type DeviceKind = 'Laptop' | 'Phone' | 'Tablet'
 
 type ActivitySignal = {
@@ -152,8 +152,21 @@ function mapAuditRecord(record: ApiAuditRecord): AuditEvent {
 }
 
 const navSections: { title: string; links: { label: string; screen: Screen; icon: LucideIcon; badge?: string }[] }[] = [
-  { title: 'Access control', links: [{ label: 'Approvals', screen: 'approvals', icon: CheckCircle2, badge: '12' }, { label: 'Devices', screen: 'devices', icon: Smartphone }, { label: 'PWA Access Simulator', screen: 'access', icon: ShieldCheck }] },
-  { title: 'Observability', links: [{ label: 'Audit log', screen: 'audit', icon: FileClock }] },
+  {
+    title: 'Modules 1–10',
+    links: [
+      { label: '1. Authentication & Roles', screen: 'identity', icon: Fingerprint },
+      { label: '2. Workspace & Tenants', screen: 'scope', icon: MonitorCog },
+      { label: '3. Device Registry', screen: 'devices', icon: Smartphone },
+      { label: '4. Approval Queue', screen: 'approvals', icon: CheckCircle2, badge: 'pending' },
+      { label: '5. Intune Sync', screen: 'intune', icon: RefreshCw },
+      { label: '6. Compliance Posture', screen: 'compliance', icon: ShieldAlert },
+      { label: '7. PWA Gatekeeper', screen: 'access', icon: ShieldCheck },
+      { label: '8. Activity Signals', screen: 'signals', icon: Activity },
+      { label: '9. Remote Commands', screen: 'commands', icon: LockKeyhole },
+      { label: '10. Audit & Evidence', screen: 'audit', icon: FileClock },
+    ],
+  },
 ]
 
 function StatusPill({ children, tone }: { children: string; tone: 'pending' | 'approved' | 'rejected' | 'compliant' | 'noncompliant' | 'stale' | 'success' | 'denied' | 'review' }) {
@@ -165,14 +178,14 @@ function DeviceGlyph({ kind }: { kind: DeviceKind }) {
   return <span className={`device-glyph glyph-${kind.toLowerCase()}`}><Icon size={18} strokeWidth={1.8} /></span>
 }
 
-function LoginPage({ onSignIn }: { onSignIn: () => void }) {
+function LoginPage({ onSignIn }: { onSignIn: (email: string) => void }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [helpMessage, setHelpMessage] = useState('')
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    onSignIn()
+    onSignIn(email.trim())
   }
 
   return <main className="login-screen" aria-current="page">
@@ -180,23 +193,25 @@ function LoginPage({ onSignIn }: { onSignIn: () => void }) {
     <div className="login-glow login-glow-right" />
     <section className="login-card" aria-labelledby="login-title">
       <div className="login-brand-mark"><ShieldCheck size={25} strokeWidth={1.9} /></div>
-      <div className="login-brand-name">DeviceGate <span>MDM</span></div>
-      <div className="login-heading"><h1 id="login-title">Sign in to your account</h1></div>
-      <form className="login-form" onSubmit={submit} noValidate>
-        <label className="login-field"><span>Email Address</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" autoComplete="username" /></label>
-        <label className="login-field"><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" autoComplete="current-password" /></label>
+      <div className="login-brand-name">GateLogiq <span>DEVICE GOVERNANCE</span></div>
+      <div className="login-heading"><h1 id="login-title">Sign in to your account</h1><p>Use your enterprise email and password to continue.</p></div>
+      <form className="login-form" onSubmit={submit}>
+        <label className="login-field"><span>Email address</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" autoComplete="username" required /></label>
+        <label className="login-field"><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" autoComplete="current-password" required /></label>
         <div className="login-options">
           <button type="button" className="forgot-password" onClick={() => setHelpMessage('Password resets are not configured in demo mode.')}>Forgot password?</button>
         </div>
         {helpMessage && <p className="login-help-message" role="status">{helpMessage}</p>}
         <button className="login-submit" type="submit">Sign In</button>
       </form>
+      <p className="login-demo-notice">Demo sign-in · Identity provider is not configured.</p>
     </section>
   </main>
 }
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [userEmail, setUserEmail] = useState('')
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const [screen, setScreen] = useState<Screen>('approvals')
   const [devices, setDevices] = useState<Device[]>([])
@@ -272,6 +287,19 @@ function App() {
   }, null)
   const isMdmSyncFresh = devices.length > 0 && devices.every((device) =>
     device.lastMdmSyncAt !== null && Date.now() - new Date(device.lastMdmSyncAt).getTime() <= 60 * 60_000)
+  const screenTitle: Record<Screen, string> = {
+    identity: 'Authentication & Roles',
+    scope: 'Workspace & Tenants',
+    approvals: 'Approval queue',
+    devices: 'Device registry',
+    intune: 'Intune sync',
+    compliance: 'Compliance posture',
+    access: 'PWA gatekeeper',
+    signals: 'Activity signals',
+    commands: 'Remote commands',
+    audit: 'Audit & evidence',
+    detail: 'Device details',
+  }
 
   async function openDevice(device: Device) {
     setReviewDeviceId(null)
@@ -366,16 +394,17 @@ function App() {
   function signOut() {
     setProfileMenuOpen(false)
     setIsAuthenticated(false)
+    setUserEmail('')
   }
 
-  if (!isAuthenticated) return <LoginPage onSignIn={() => setIsAuthenticated(true)} />
+  if (!isAuthenticated) return <LoginPage onSignIn={(email) => { setUserEmail(email); setIsAuthenticated(true) }} />
 
   return (
     <div className="app-shell app-shell-enter">
       <aside className={`sidebar ${mobileNavOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-lockup">
           <div className="brand-mark"><ShieldCheck size={19} strokeWidth={2.2} /></div>
-          <div><span className="brand-name" style={{ color: '#ffffff' }}>DeviceGate</span><span className="brand-product">MDM DEVICE GOVERNANCE</span></div>
+          <div><span className="brand-name">GateLogiq</span><span className="brand-product">DEVICE GOVERNANCE</span></div>
           <button className="icon-button mobile-close" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)}><X size={18} /></button>
         </div>
         <div className="tenant-switcher">
@@ -389,21 +418,18 @@ function App() {
         </div>
         <nav className="primary-nav" aria-label="Primary navigation">
           {navSections.map((section) => <div className="nav-group" key={section.title}>
-            <div className="nav-heading" style={{ color: '#ffffff' }}>{section.title}</div>
+            <div className="nav-heading">{section.title}</div>
             {section.links.map(({ label, screen: target, icon: Icon, badge }) => {
-              const isActive = target === screen || (screen === 'detail' && label === 'Devices')
+              const isActive = target === screen || (screen === 'detail' && target === 'devices')
               return <button
                 className={`nav-link ${isActive ? 'nav-active' : ''}`}
                 key={label}
                 onClick={() => navigate(target)}
                 aria-current={isActive ? 'page' : undefined}
-                style={isActive
-                  ? { backgroundColor: '#4f46e5', color: '#ffffff', fontWeight: 700 }
-                  : { color: '#ffffff' }}
               >
-                <Icon size={17} strokeWidth={1.8} style={{ color: '#ffffff', stroke: '#ffffff' }} />
-                <span style={{ color: '#ffffff', fontWeight: 600 }}>{label}</span>
-                {badge && <span className="nav-badge" style={{ color: '#ffffff' }}>{pendingCount}</span>}
+                <Icon size={17} strokeWidth={1.8} />
+                <span>{label}</span>
+                {badge && <span className="nav-badge">{pendingCount}</span>}
               </button>
             })}
           </div>)}
@@ -412,10 +438,10 @@ function App() {
           <div className={`sync-mini ${isMdmSyncFresh ? 'sync-mini-current' : ''}`}><span className="sync-mini-dot" /><span>{isMdmSyncFresh ? 'Intune sync current' : 'Intune sync delayed'}</span><span className="sync-mini-time">{formatRelativeTime(latestMdmSyncAt) ?? '—'}</span></div>
           <div className="profile-menu-wrapper" ref={profileMenuRef}>
             <button type="button" className="profile-row" aria-label="Open user profile menu" aria-haspopup="menu" aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen((open) => !open)}>
-              <span className="profile-avatar">MP</span><span className="profile-copy"><strong>Mina Patel</strong><small>Customer IT Administrator</small></span><MoreHorizontal size={18} />
+              <span className="profile-avatar">IT</span><span className="profile-copy"><strong>{userEmail}</strong><small>Customer IT Administrator</small></span><MoreHorizontal size={18} />
             </button>
             {profileMenuOpen && <div className="profile-popover" role="menu" aria-label="User profile options">
-              <div className="profile-popover-details"><span className="profile-popover-avatar">MP</span><span className="profile-popover-copy"><strong>Mina Patel</strong><small>admin@acme.com</small><span className="profile-role-badge">Customer IT Administrator</span></span></div>
+              <div className="profile-popover-details"><span className="profile-popover-avatar">IT</span><span className="profile-popover-copy"><strong>{userEmail}</strong><small>Active demo session</small><span className="profile-role-badge">Customer IT Administrator</span></span></div>
               <div className="profile-popover-divider" />
               <button type="button" className="profile-signout" role="menuitem" onClick={signOut}><LogOut size={16} />Sign Out</button>
             </div>}
@@ -427,13 +453,13 @@ function App() {
       <div className="main-column">
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button>
-          <div className="breadcrumb"><span>{tenant}</span><ChevronRight size={14} /><strong>{screen === 'audit' ? 'Audit log' : screen === 'access' ? 'PWA Access Simulator' : screen === 'detail' ? 'Device details' : screen === 'devices' ? 'Device inventory' : 'Approvals'}</strong></div>
+          <div className="breadcrumb"><span>{tenant}</span><ChevronRight size={14} /><strong>{screenTitle[screen]}</strong></div>
           <div className="topbar-actions">
             <button className="button button-secondary sync-button" title="Simulated sync; no live Intune connection is configured." onClick={() => void runIntuneSync()} disabled={isSyncing || isLoading}><RefreshCw size={14} className={isSyncing ? 'sync-spinning' : ''} />{isSyncing ? 'Syncing…' : 'Sync with Intune'}</button>
             <button className="global-search" onClick={() => document.getElementById('page-search')?.focus()}><Search size={16} /><span>Search anything</span><kbd>⌘ K</kbd></button>
             <button className="icon-button topbar-help" aria-label="Help"><CircleHelp size={18} /></button>
             <button className="icon-button notification-button" aria-label="Notifications"><Bell size={18} /><span /></button>
-            <div className="topbar-account"><span className="profile-avatar">MP</span><button className="sign-out-button" onClick={signOut}><LogOut size={14} />Sign Out</button></div>
+            <div className="topbar-account"><span className="profile-avatar">IT</span><button className="sign-out-button" onClick={signOut}><LogOut size={14} />Sign Out</button></div>
           </div>
         </header>
 
@@ -448,14 +474,20 @@ function App() {
           {apiError && <div className="api-error" role="alert"><span>{apiError}</span><button onClick={() => setReloadToken((current) => current + 1)}>Retry</button></div>}
           {isLoading && <div className="loading-state" role="status">Loading devices for {workspace}…</div>}
 
+          {screen === 'identity' && <IdentityRolesPage email={userEmail} tenant={tenant} workspace={workspace} onSignOut={signOut} />}
+          {screen === 'scope' && <WorkspaceTenantsPage tenant={tenant} workspace={workspace} onTenantChange={setTenant} onWorkspaceChange={setWorkspace} />}
           {screen === 'approvals' && <ApprovalsPage devices={devices} tenant={tenant} workspace={workspace} onOpenDevice={openDevice} onReview={(device) => setReviewDeviceId(device.id)} />}
           {screen === 'devices' && <DevicesPage devices={devices} onOpenDevice={openDevice} onRemoteCommand={openRemoteCommand} />}
+          {screen === 'intune' && <IntunePage devices={devices} latestSyncAt={latestMdmSyncAt} syncIsFresh={isMdmSyncFresh} isSyncing={isSyncing} onSync={() => void runIntuneSync()} />}
+          {screen === 'compliance' && <CompliancePage devices={devices} onOpenDevice={openDevice} />}
           {screen === 'detail' && detailLoading && <div className="loading-state" role="status">Loading device details…</div>}
           {screen === 'detail' && !detailLoading && selectedDevice && <DeviceDetail device={selectedDevice} onBack={() => navigate('devices')} onRemoteCommand={openRemoteCommand} />}
           {screen === 'audit' && <AuditPage events={audit} onExport={exportAudit} exporting={exportingAudit} />}
           {screen === 'access' && <PwaAccessPage devices={devices} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} onEvaluate={testPwaAccess} />}
+          {screen === 'signals' && <SignalsPage devices={devices} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} />}
+          {screen === 'commands' && <RemoteCommandsPage devices={devices} onRemoteCommand={openRemoteCommand} />}
         </main>
-        <footer className="page-footer"><span>DeviceGate Device Governance</span><span>Tenant scope: {tenant} <i /> Workspace: {workspace}</span></footer>
+        <footer className="page-footer"><span>GateLogiq Device Governance</span><span>Tenant scope: {tenant} <i /> Workspace: {workspace}</span></footer>
       </div>
 
       {reviewDevice && <ReviewDialog device={reviewDevice} onClose={() => setReviewDeviceId(null)} onOpenDevice={openDevice} onSubmit={submitDecision} />}
@@ -516,9 +548,9 @@ function PwaAccessPage({
           {devices.map((device) => <option key={device.recordId} value={device.recordId}>{device.id} · {device.name} — {device.owner}</option>)}
         </select></label>
         <label className="access-field"><span>Requested application</span><select value={requestedAppId} onChange={(event) => { setRequestedAppId(event.target.value); setResult(null); setError('') }} disabled={isEvaluating}>
-          <option value="com.northstar.workspace">DeviceGate Workspace</option>
-          <option value="com.northstar.support">DeviceGate Support</option>
-          <option value="com.northstar.analytics">DeviceGate Analytics</option>
+          <option value="com.northstar.workspace">GateLogiq Workspace</option>
+          <option value="com.northstar.support">GateLogiq Support</option>
+          <option value="com.northstar.analytics">GateLogiq Analytics</option>
         </select></label>
         {selected && <div className="access-subject"><DeviceGlyph kind={selected.kind} /><div><strong>{selected.owner}</strong><span>{selected.email} · {selected.workspace}</span></div><span className="access-subject-id">User ID: {selected.ownerUserId}</span></div>}
         <button className="button button-primary access-test-button" onClick={() => void evaluate()} disabled={!selected || isEvaluating}>
@@ -531,7 +563,7 @@ function PwaAccessPage({
           <div className="phone-notch" />
           <div className="phone-screen">
             <div className="phone-status"><span>9:41</span><span>•••</span></div>
-            <div className="phone-app-brand"><span className="phone-app-icon"><ShieldCheck size={17} /></span><span>DeviceGate<span>WORKSPACE</span></span></div>
+            <div className="phone-app-brand"><span className="phone-app-icon"><ShieldCheck size={17} /></span><span>GateLogiq<span>WORKSPACE</span></span></div>
             <div className="phone-welcome">Good morning,<strong>{selected?.owner.split(' ')[0] ?? 'there'}</strong></div>
             <div className="phone-workspace"><span>ACTIVE WORKSPACE</span><strong>{selected?.workspace ?? 'Workspace'}</strong><span className="phone-online"><i /> Secure connection</span></div>
             <div className="phone-preview-foot"><LockKeyhole size={13} /> Protected by device posture</div>
@@ -565,6 +597,234 @@ function PwaAccessPage({
         <div className="access-correlation">Correlation ID <code>{result.correlationId}</code></div>
       </div>
     </section>}
+  </>
+}
+
+function IdentityRolesPage({
+  email,
+  tenant,
+  workspace,
+  onSignOut,
+}: {
+  email: string
+  tenant: string
+  workspace: string
+  onSignOut: () => void
+}) {
+  return <>
+    <PageHeading eyebrow="MODULE 1 / IDENTITY AND ACCESS" title="Authentication & Roles" description="Review the signed-in profile, current session, and role capabilities.">
+      <button className="button button-secondary" onClick={onSignOut}><LogOut size={15} />Sign out</button>
+    </PageHeading>
+    <div className="identity-overview-grid">
+      <section className="panel identity-profile-panel">
+        <div className="panel-heading"><div><h2>User profile</h2><p>Identity associated with this console session.</p></div><span className="profile-avatar identity-avatar">IT</span></div>
+        <div className="module-info-list">
+          <InfoField label="Signed-in email" value={email || 'Not available'} />
+          <InfoField label="Assigned role" value="Customer IT Administrator" />
+          <InfoField label="Tenant scope" value={tenant} />
+          <InfoField label="Workspace scope" value={workspace} />
+        </div>
+      </section>
+      <section className="panel identity-session-panel">
+        <div className="panel-heading"><div><h2>Session</h2><p>Current browser authentication state.</p></div><span className="status-pill status-approved"><span className="status-dot" />Active</span></div>
+        <div className="module-info-list">
+          <InfoField label="Session status" value="Signed in" />
+          <InfoField label="Authentication mode" value="Demo sign-in" />
+          <InfoField label="Authorization scope" value={`${tenant} / ${workspace}`} />
+        </div>
+      </section>
+    </div>
+    <section className="panel identity-permissions-panel">
+      <div className="panel-heading"><div><h2>Role permissions</h2><p>Console capabilities shown for the Customer IT Administrator role.</p></div><span className="source-chip"><LockKeyhole size={14} /> Backend enforced</span></div>
+      <ul className="identity-permission-list">
+        <li><CheckCircle2 size={16} /><span>Review device approvals and submit an audited decision.</span></li>
+        <li><CheckCircle2 size={16} /><span>View devices and their reported compliance posture and activity signals.</span></li>
+        <li><CheckCircle2 size={16} /><span>Request Intune synchronization and evaluate PWA access through the governance API.</span></li>
+        <li><CheckCircle2 size={16} /><span>Submit remote device commands and export audit evidence.</span></li>
+      </ul>
+      <p className="module-disclaimer"><Shield size={16} /> This demo view describes console features, not a verified identity-provider claim. The backend remains authoritative for authorization.</p>
+    </section>
+  </>
+}
+
+function WorkspaceTenantsPage({
+  tenant,
+  workspace,
+  onTenantChange,
+  onWorkspaceChange,
+}: {
+  tenant: string
+  workspace: string
+  onTenantChange: (tenant: string) => void
+  onWorkspaceChange: (workspace: string) => void
+}) {
+  return <>
+    <PageHeading eyebrow="MODULE 2 / TENANT AND ENVIRONMENT SCOPE" title="Workspace & Tenants" description="Select the tenant boundary and workspace used for governance data and actions." />
+    <section className="scope-control-grid">
+      <label className="scope-control-card">
+        <span className="scope-control-icon"><Users size={19} /></span>
+        <span className="scope-control-label">Tenant boundary</span>
+        <strong>{tenant}</strong>
+        <select value={tenant} onChange={(event) => onTenantChange(event.target.value)} aria-label="Select tenant">
+          <option>Acme Corporation</option>
+          <option>Northwind Health</option>
+          <option>Contoso Group</option>
+        </select>
+        <small>Device and audit requests are scoped to this tenant.</small>
+      </label>
+      <label className="scope-control-card">
+        <span className="scope-control-icon"><MonitorCog size={19} /></span>
+        <span className="scope-control-label">Workspace environment</span>
+        <strong>{workspace}</strong>
+        <select value={workspace} onChange={(event) => onWorkspaceChange(event.target.value)} aria-label="Select workspace">
+          <option>Production</option>
+          <option>Engineering</option>
+          <option>Corporate</option>
+        </select>
+        <small>Changing the workspace reloads the records within the selected tenant.</small>
+      </label>
+    </section>
+    <section className="panel scope-boundary-panel">
+      <div className="panel-heading"><div><h2>Active governance boundary</h2><p>Every device and audit operation uses both selected scope values.</p></div><span className="source-chip"><ShieldCheck size={14} /> Scoped requests</span></div>
+      <div className="scope-boundary-value"><span>{tenant}</span><ChevronRight size={17} /><strong>{workspace}</strong></div>
+      <p className="module-disclaimer"><LockKeyhole size={16} /> Switching tenants or workspaces refreshes the API-backed inventory and audit records for the new boundary.</p>
+    </section>
+  </>
+}
+
+function IntunePage({
+  devices,
+  latestSyncAt,
+  syncIsFresh,
+  isSyncing,
+  onSync,
+}: {
+  devices: Device[]
+  latestSyncAt: string | null
+  syncIsFresh: boolean
+  isSyncing: boolean
+  onSync: () => void
+}) {
+  return <>
+    <PageHeading eyebrow="MODULE 5 / MDM PROVIDER INTEGRATION" title="Microsoft Intune sync" description="Review provider sync health and reconcile the active workspace inventory.">
+      <button className="button button-primary" onClick={onSync} disabled={isSyncing}>
+        <RefreshCw size={16} className={isSyncing ? 'sync-spinning' : ''} />{isSyncing ? 'Syncing…' : 'Sync with Intune'}
+      </button>
+    </PageHeading>
+    <section className="metrics-grid compact-metrics" aria-label="Intune sync status">
+      <Metric label="Managed devices" value={devices.length.toLocaleString()} note="Current workspace inventory" icon={Smartphone} accent="blue" />
+      <Metric label="Provider" value="Intune" note="Microsoft device management" icon={MonitorCog} accent="green" />
+      <Metric label="Latest sync" value={formatRelativeTime(latestSyncAt) ?? 'Not recorded'} note={latestSyncAt ? new Date(latestSyncAt).toLocaleString() : 'No sync timestamp is available'} icon={RefreshCw} accent={syncIsFresh ? 'green' : 'amber'} />
+      <Metric label="Sync health" value={syncIsFresh ? 'Current' : 'Needs review'} note="Freshness window: 60 minutes" icon={syncIsFresh ? CheckCircle2 : AlertTriangle} accent={syncIsFresh ? 'green' : 'amber'} />
+    </section>
+    <section className="panel module-status-panel">
+      <div className="panel-heading"><div><h2>Provider integration</h2><p>Sync results are supplied by the device governance API for this tenant and workspace.</p></div><span className={`status-pill ${syncIsFresh ? 'status-approved' : 'status-pending'}`}><span className="status-dot" />{syncIsFresh ? 'Current' : 'Attention required'}</span></div>
+      <div className="module-info-list">
+        <InfoField label="MDM provider" value="Microsoft Intune" />
+        <InfoField label="Devices in scope" value={devices.length.toLocaleString()} />
+        <InfoField label="Most recent device sync" value={latestSyncAt ? new Date(latestSyncAt).toLocaleString() : 'Not recorded'} />
+        <InfoField label="Connection model" value="Governance API integration" />
+      </div>
+      <p className="module-disclaimer"><Shield size={16} /> This console does not connect directly to Microsoft Graph. Sync status and outcomes are reported by the configured backend.</p>
+    </section>
+  </>
+}
+
+function CompliancePage({ devices, onOpenDevice }: { devices: Device[]; onOpenDevice: (device: Device) => void }) {
+  const compliantCount = devices.filter((device) => device.compliance === 'Compliant').length
+  const nonCompliantCount = devices.filter((device) => device.compliance === 'Non-compliant').length
+  const staleCount = devices.filter((device) => device.compliance === 'Stale').length
+  const complianceRate = devices.length ? `${Math.round(compliantCount / devices.length * 100)}%` : '—'
+
+  return <>
+    <PageHeading eyebrow="MODULE 6 / DEVICE POSTURE" title="Compliance posture" description="Review the compliance state reported for managed devices in this workspace." />
+    <section className="metrics-grid compact-metrics" aria-label="Compliance summary">
+      <Metric label="Compliant" value={compliantCount.toLocaleString()} note="Reported by the MDM provider" icon={CheckCircle2} accent="green" />
+      <Metric label="Non-compliant" value={nonCompliantCount.toLocaleString()} note="Requires remediation" icon={ShieldAlert} accent="coral" />
+      <Metric label="Stale posture" value={staleCount.toLocaleString()} note="Compliance data needs refresh" icon={Clock3} accent="amber" />
+      <Metric label="Compliance rate" value={complianceRate} note="Compliant devices in current scope" icon={ShieldCheck} accent="blue" />
+    </section>
+    <section className="panel queue-panel">
+      <div className="panel-heading"><div><h2>Device posture by record</h2><p>Approval and compliance are independent controls; only the backend evaluates access policy.</p></div></div>
+      <div className="table-scroll"><table className="data-table module-table"><thead><tr><th>DEVICE</th><th>OWNER</th><th>COMPLIANCE</th><th>LAST MDM SYNC</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
+        {devices.map((device) => <tr key={device.recordId}>
+          <td><button className="device-cell" onClick={() => void onOpenDevice(device)}><DeviceGlyph kind={device.kind} /><span><strong>{device.name}</strong><small>{device.id} <i /> {device.platform}</small></span></button></td>
+          <td><span className="owner-cell"><strong>{device.owner}</strong><small>{device.email}</small></span></td>
+          <td><CompliancePill state={device.compliance} /></td>
+          <td className="date-cell">{formatRelativeTime(device.lastMdmSyncAt) ?? 'Not recorded'}</td>
+          <td><button className="button button-secondary" onClick={() => void onOpenDevice(device)}>View details <ChevronRight size={14} /></button></td>
+        </tr>)}
+        {devices.length === 0 && <tr><td className="empty-cell" colSpan={5}>No device posture records are available in this workspace.</td></tr>}
+      </tbody></table></div>
+    </section>
+  </>
+}
+
+function SignalsPage({
+  devices,
+  selectedDeviceId,
+  onSelectDevice,
+}: {
+  devices: Device[]
+  selectedDeviceId: string
+  onSelectDevice: (deviceId: string) => void
+}) {
+  const selected = devices.find((device) => device.recordId === selectedDeviceId) ?? devices[0]
+
+  return <>
+    <PageHeading eyebrow="MODULE 8 / SOURCED TELEMETRY" title="Activity signals" description="Inspect the seven independently sourced activity timestamps for a managed device.">
+      <label className="module-device-picker"><span>Device</span><select value={selected?.recordId ?? ''} onChange={(event) => onSelectDevice(event.target.value)} disabled={devices.length === 0}>
+        {devices.length === 0 && <option value="">No devices available</option>}
+        {devices.map((device) => <option key={device.recordId} value={device.recordId}>{device.name} · {device.owner}</option>)}
+      </select></label>
+    </PageHeading>
+    {selected
+      ? <>
+        <section className="module-selected-device"><DeviceGlyph kind={selected.kind} /><div><span className="eyebrow">SELECTED DEVICE</span><strong>{selected.name}</strong><small>{selected.owner} · {selected.workspace} · {selected.platform} {selected.version}</small></div><ApprovalPill state={selected.approval} /><CompliancePill state={selected.compliance} /></section>
+        <section className="signal-grid module-signal-grid" aria-label="Seven device activity signals">
+          {selected.signals.map((signal, index) => {
+            const Icon = signal.icon
+            return <article className={`signal-card ${index === 6 ? 'signal-logout' : ''}`} key={signal.label}>
+              <div className="signal-card-head"><span className="signal-icon"><Icon size={16} /></span><span className="signal-index">0{index + 1}</span></div>
+              <h3>{signal.label}</h3>
+              <strong className={signal.value ? '' : 'signal-null'}>{signal.value ?? 'Not recorded'}</strong>
+              <div className="signal-source"><span>Source</span><span>{signal.source}</span></div>
+              {signal.note && <small className="signal-note">{signal.note}</small>}
+            </article>
+          })}
+        </section>
+        <div className="signal-disclaimer"><Shield size={15} /><span>Signal timestamps are shown independently. A missing signal is not treated as a substitute for a device check-in or compliance result.</span></div>
+      </>
+      : <div className="empty-devices">No device signals are available in this workspace.</div>}
+  </>
+}
+
+function RemoteCommandsPage({
+  devices,
+  onRemoteCommand,
+}: {
+  devices: Device[]
+  onRemoteCommand: (device: Device, command?: RemoteCommand) => void
+}) {
+  return <>
+    <PageHeading eyebrow="MODULE 9 / REMOTE DEVICE MANAGEMENT" title="Remote commands" description="Issue an auditable device lifecycle command with a required justification." />
+    <section className="panel queue-panel">
+      <div className="panel-heading"><div><h2>Commandable devices</h2><p>Lock, retire, and wipe actions require confirmation and are recorded in the audit log.</p></div></div>
+      <div className="table-scroll"><table className="data-table module-table"><thead><tr><th>DEVICE</th><th>OWNER</th><th>LIFECYCLE</th><th>AVAILABLE COMMANDS</th></tr></thead><tbody>
+        {devices.map((device) => <tr key={device.recordId}>
+          <td><span className="device-cell"><DeviceGlyph kind={device.kind} /><span><strong>{device.name}</strong><small>{device.id} <i /> {device.platform}</small></span></span></td>
+          <td><span className="owner-cell"><strong>{device.owner}</strong><small>{device.email}</small></span></td>
+          <td><span className={`lifecycle-pill lifecycle-${device.lifecycleState.toLowerCase()}`}>{device.lifecycleState}</span></td>
+          <td><div className="module-command-actions">
+            <button className="button button-secondary" onClick={() => onRemoteCommand(device, 'LOCK')}>Lock</button>
+            <button className="button button-secondary" onClick={() => onRemoteCommand(device, 'RETIRE')}>Retire</button>
+            <button className="button button-danger" onClick={() => onRemoteCommand(device, 'WIPE')}>Wipe</button>
+          </div></td>
+        </tr>)}
+        {devices.length === 0 && <tr><td className="empty-cell" colSpan={4}>No devices are available for remote commands.</td></tr>}
+      </tbody></table></div>
+    </section>
+    <p className="module-disclaimer"><LockKeyhole size={16} /> Commands are submitted through the configured governance API; this development environment does not issue live Intune device actions.</p>
   </>
 }
 
