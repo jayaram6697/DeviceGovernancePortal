@@ -97,6 +97,15 @@ function formatRelativeTime(value: string | null): string | null {
   return days === 1 ? 'Yesterday' : `${days} days ago`
 }
 
+function formatCompactRelativeTime(value: string | null): string | null {
+  if (!value) return null
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60_000))
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
 function friendlySignalTitle(label: string): string {
   const titles: Record<string, string> = {
     'MDM cloud sync': 'Cloud sync time',
@@ -392,7 +401,6 @@ function App() {
   const [audit, setAudit] = useState<AuditEvent[]>([])
   const [selectedDeviceId, setSelectedDeviceId] = useState('')
   const [reviewDeviceId, setReviewDeviceId] = useState<string | null>(null)
-  const [reviewInitialDecision, setReviewInitialDecision] = useState<'Approved' | 'Rejected'>('Approved')
   const [tenant, setTenant] = useState('Acme Corporation')
   const [workspace, setWorkspace] = useState('Production')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -721,21 +729,23 @@ function App() {
           <div><span className="brand-name">GateLogiq</span><span className="brand-product">DEVICE GOVERNANCE</span></div>
           <button className="icon-button mobile-close" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)}><X size={18} /></button>
         </div>
-        <div className="tenant-switcher">
-          <span className="tenant-avatar">AC</span>
-          <label className="select-stack"><span>Tenant</span><select value={tenant} onChange={(event) => setTenant(event.target.value)} aria-label="Tenant"><option>Acme Corporation</option><option>Northwind Health</option><option>Contoso Group</option></select></label>
-          <ChevronDown size={15} className="select-chevron" />
-        </div>
-        <div className="workspace-switcher">
-          <span className="workspace-label">WORKSPACE</span>
-          <label className="workspace-select"><span className="workspace-indicator" /><select value={visibleWorkspace} onChange={(event) => isDemoMode
-            ? switchDemoWorkspace(event.target.value as DemoWorkspace)
-            : setWorkspace(event.target.value)} aria-label="Workspace">
-            {isDemoMode
-              ? ['Engineering', 'Operations UAE', 'Field Logistics'].map((name) => <option key={name}>{name}</option>)
-              : ['Production', 'Engineering', 'Corporate'].map((name) => <option key={name}>{name}</option>)}
-          </select><ChevronDown size={14} /></label>
-        </div>
+        {screen !== 'scope' && <>
+          <div className="tenant-switcher">
+            <span className="tenant-avatar">AC</span>
+            <label className="select-stack"><span>Tenant</span><select value={tenant} onChange={(event) => setTenant(event.target.value)} aria-label="Tenant"><option>Acme Corporation</option><option>Northwind Health</option><option>Contoso Group</option></select></label>
+            <ChevronDown size={15} className="select-chevron" />
+          </div>
+          <div className="workspace-switcher">
+            <span className="workspace-label">WORKSPACE</span>
+            <label className="workspace-select"><span className="workspace-indicator" /><select value={visibleWorkspace} onChange={(event) => isDemoMode
+              ? switchDemoWorkspace(event.target.value as DemoWorkspace)
+              : setWorkspace(event.target.value)} aria-label="Workspace">
+              {isDemoMode
+                ? ['Engineering', 'Operations UAE', 'Field Logistics'].map((name) => <option key={name}>{name}</option>)
+                : ['Production', 'Engineering', 'Corporate'].map((name) => <option key={name}>{name}</option>)}
+            </select><ChevronDown size={14} /></label>
+          </div>
+        </>}
         <nav className="primary-nav" aria-label="Primary navigation">
           {navSections.map((section) => <div className="nav-group" key={section.title}>
             <div className="nav-heading">{section.title}</div>
@@ -760,15 +770,16 @@ function App() {
           </div>)}
         </nav>
         <div className="sidebar-bottom">
-          <div className={`sync-mini ${isMdmSyncFresh ? 'sync-mini-current' : ''}`}><span className="sync-mini-dot" /><span>{isDemoMode ? 'Sample sync status' : isMdmSyncFresh ? 'Intune sync current' : 'Intune sync delayed'}</span><span className="sync-mini-time">{formatRelativeTime(latestMdmSyncAt) ?? '—'}</span></div>
+          <div className={`sync-mini ${isMdmSyncFresh ? 'sync-mini-current' : ''}`} role="status">
+            <span className="sync-mini-dot" aria-hidden="true" />
+            <span>{`Intune Sync: ${isMdmSyncFresh ? 'Healthy' : 'Delayed'} (${formatCompactRelativeTime(latestMdmSyncAt) ?? '—'})`}</span>
+          </div>
           <div className="profile-menu-wrapper" ref={profileMenuRef}>
-            <button type="button" className="profile-row" aria-label="Open user profile menu" aria-haspopup="menu" aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen((open) => !open)}>
+            <button type="button" className="profile-row" aria-label="Open user profile details" aria-haspopup="dialog" aria-expanded={profileMenuOpen} aria-controls="profile-details" onClick={() => setProfileMenuOpen((open) => !open)}>
               <span className="profile-avatar">IT</span><span className="profile-copy"><strong>{userEmail}</strong><small>Customer IT Administrator</small></span><MoreHorizontal size={18} />
             </button>
-            {profileMenuOpen && <div className="profile-popover" role="menu" aria-label="User profile options">
+            {profileMenuOpen && <div className="profile-popover" id="profile-details" role="dialog" aria-label="User profile details">
               <div className="profile-popover-details"><span className="profile-popover-avatar">IT</span><span className="profile-popover-copy"><strong>{userEmail}</strong><small>Active demo session</small><span className="profile-role-badge">Customer IT Administrator</span></span></div>
-              <div className="profile-popover-divider" />
-              <button type="button" className="profile-signout" role="menuitem" onClick={signOut}><LogOut size={16} />Sign Out</button>
             </div>}
           </div>
         </div>
@@ -780,7 +791,6 @@ function App() {
           <button className="icon-button mobile-menu" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button>
           <div className="breadcrumb"><span>{tenant}</span><ChevronRight size={14} /><strong>{screenTitle[screen]}</strong></div>
           <div className="topbar-actions">
-            <button className="button button-secondary sync-button" title={isDemoMode ? 'Local demo simulation only; no Intune connection is contacted.' : 'Request a synchronization through the configured governance API.'} onClick={() => void runIntuneSync()} disabled={isSyncing || isLoading}><RefreshCw size={14} className={isSyncing ? 'sync-spinning' : ''} />{isSyncing ? 'Syncing…' : 'Sync with Intune'}</button>
             <button className="global-search" type="button" onClick={() => { setSearchQuery(''); setIsSearchOpen(true) }} aria-label="Search devices, users, and modules"><Search size={16} /><span>Search anything</span><kbd>⌘ K</kbd></button>
             <button className="icon-button topbar-help" aria-label="Help"><CircleHelp size={18} /></button>
             <div className="notification-anchor" ref={notificationMenuRef}>
@@ -818,7 +828,7 @@ function App() {
                 </div>
               </section>}
             </div>
-            <div className="topbar-account"><span className="profile-avatar">IT</span><button className="sign-out-button" onClick={signOut}><LogOut size={14} />Sign Out</button></div>
+            <div className="topbar-account"><span className="profile-avatar">IT</span><button className="sign-out-button" aria-label="Sign Out" onClick={signOut}><LogOut size={14} /><span>Sign Out</span></button></div>
           </div>
         </header>
 
@@ -834,10 +844,10 @@ function App() {
           {apiError && <div className="friendly-error" role="alert"><AlertTriangle size={17} /><span>{apiError}</span><button type="button" aria-label="Dismiss message" onClick={() => setApiError('')}><X size={15} /></button></div>}
           {isLoading && <div className="loading-state" role="status">Loading devices for {visibleWorkspace}…</div>}
 
-          {screen === 'identity' && <IdentityRolesPage email={userEmail} tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} onSignOut={signOut} />}
+          {screen === 'identity' && <IdentityRolesPage email={userEmail} tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} />}
           {screen === 'scope' && <WorkspaceTenantsPage tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} demoWorkspace={demoWorkspace} onTenantChange={setTenant} onWorkspaceChange={(next) => isDemoMode ? switchDemoWorkspace(next as DemoWorkspace) : setWorkspace(next)} />}
-          {screen === 'approvals' && <ApprovalsPage devices={devices} workspace={visibleWorkspace} isDemoMode={isDemoMode} onOpenDevice={openDevice} onReview={(device, decision) => { setReviewInitialDecision(decision); setReviewDeviceId(device.id) }} />}
-          {screen === 'devices' && <DevicesPage devices={devices} isDemoMode={isDemoMode} onOpenDevice={openDevice} onRemoteCommand={openRemoteCommand} />}
+          {screen === 'approvals' && <ApprovalsPage devices={devices} workspace={visibleWorkspace} isDemoMode={isDemoMode} onReview={(device) => setReviewDeviceId(device.id)} />}
+          {screen === 'devices' && <DevicesPage devices={devices} isDemoMode={isDemoMode} onOpenDevice={openDevice} />}
           {screen === 'intune' && <IntunePage devices={devices} latestSyncAt={latestMdmSyncAt} syncIsFresh={isMdmSyncFresh} isSyncing={isSyncing} isDemoMode={isDemoMode} onSync={() => void runIntuneSync()} />}
           {screen === 'compliance' && <CompliancePage devices={devices} isDemoMode={isDemoMode} onOpenDevice={openDevice} />}
           {screen === 'detail' && detailLoading && <div className="loading-state" role="status">Loading device details…</div>}
@@ -901,7 +911,7 @@ function App() {
         </section>
       </div>}
 
-      {reviewDevice && <ReviewDialog key={reviewDevice.recordId} device={reviewDevice} initialDecision={reviewInitialDecision} isDemoMode={isDemoMode} onClose={() => setReviewDeviceId(null)} onOpenDevice={openDevice} onSubmit={submitDecision} />}
+      {reviewDevice && <ReviewDialog key={reviewDevice.recordId} device={reviewDevice} isDemoMode={isDemoMode} onClose={() => setReviewDeviceId(null)} onOpenDevice={openDevice} onSubmit={submitDecision} />}
       {remoteCommandDevice && <RemoteCommandDialog device={remoteCommandDevice} initialCommand={remoteCommandInitial} isDemoMode={isDemoMode} onClose={() => setRemoteCommandDevice(null)} onSubmit={runRemoteCommand} />}
       {notice && <div className="toast" role="status"><Check size={17} />{notice}<button className="toast-close" aria-label="Dismiss message" onClick={() => setNotice('')}><X size={15} /></button></div>}
     </div>
@@ -967,7 +977,7 @@ function PwaAccessPage({
         </select></label>
         {selected && <div className="access-subject"><DeviceGlyph kind={selected.kind} /><div><strong>{selected.owner}</strong><span>{selected.email} · {selected.workspace}</span></div><span className="access-subject-id">User ID: {selected.ownerUserId}</span></div>}
         <button className="button button-primary access-test-button" onClick={() => void evaluate()} disabled={!selected || isEvaluating}>
-          <ShieldCheck size={16} />{isEvaluating ? 'Checking security…' : 'Check PWA Security'}
+          <ShieldCheck size={16} />{isEvaluating ? 'Evaluating access…' : 'Evaluate Access Decision'}
         </button>
       </div>
     </section>
@@ -1018,18 +1028,14 @@ function IdentityRolesPage({
   tenant,
   workspace,
   isDemoMode,
-  onSignOut,
 }: {
   email: string
   tenant: string
   workspace: string
   isDemoMode: boolean
-  onSignOut: () => void
 }) {
   return <>
-    <PageHeading eyebrow="MODULE 1 / IDENTITY AND ACCESS" title="Authentication & Roles" description="A clear view of your account, security status, and what you can manage.">
-      <button className="button button-secondary" onClick={onSignOut}><LogOut size={15} />Sign out</button>
-    </PageHeading>
+    <PageHeading eyebrow="MODULE 1 / IDENTITY AND ACCESS" title="Authentication & Roles" description="A clear view of your account, security status, and what you can manage." />
     <section className="executive-user-card">
       <div className="executive-user-avatar"><Users size={24} /></div>
       <div className="executive-user-main">
@@ -1220,9 +1226,9 @@ function SignalsPage({
             return <article className={`signal-card ${index === 6 ? 'signal-logout' : ''}`} key={signal.label}>
               <div className="signal-card-head"><span className="signal-icon"><Icon size={16} /></span><span className="signal-index">0{index + 1}</span></div>
               <h3>{friendlySignalTitle(signal.label)}</h3>
-              <strong className={signal.value ? '' : 'signal-null'}>{signal.value ?? 'Not recorded'}</strong>
-              <div className="signal-source"><span>Last update</span><span>{signal.occurredAt ? new Date(signal.occurredAt).toLocaleString() : 'No activity recorded'}</span></div>
-              {signal.note && <small className="signal-note">{signal.note}</small>}
+              <strong className={signal.occurredAt ? '' : 'signal-null'}>{signal.occurredAt ? new Date(signal.occurredAt).toLocaleString() : 'Not recorded'}</strong>
+              <div className="signal-source"><span>Source</span><span>{signal.source}</span></div>
+              {signal.note && signal.occurredAt && <small className="signal-note">{signal.note}</small>}
             </article>
           })}
         </section>
@@ -1248,9 +1254,9 @@ function RemoteCommandsPage({
         <div className="remote-device-heading"><DeviceGlyph kind={device.kind} /><span><strong>{device.name}</strong><small>{device.owner} · {device.workspace}</small></span><span className={`lifecycle-pill lifecycle-${device.lifecycleState.toLowerCase()}`}>{device.lifecycleState}</span></div>
         <p>Choose an action for this device:</p>
         <div className="remote-action-grid">
-          <button type="button" className="remote-action-lock" onClick={() => onRemoteCommand(device, 'LOCK')}><LockKeyhole size={16} />Lock Device <span>🔒</span></button>
-          <button type="button" className="remote-action-retire" onClick={() => onRemoteCommand(device, 'RETIRE')}><Package size={16} />Retire Device <span>📦</span></button>
-          <button type="button" className="remote-action-wipe" onClick={() => onRemoteCommand(device, 'WIPE')}><AlertTriangle size={16} />Remote Wipe <span>⚠️</span></button>
+          <button type="button" className="remote-action-lock" onClick={() => onRemoteCommand(device, 'LOCK')}><LockKeyhole size={16} />Lock</button>
+          <button type="button" className="remote-action-retire" onClick={() => onRemoteCommand(device, 'RETIRE')}><Package size={16} />Retire</button>
+          <button type="button" className="remote-action-wipe" onClick={() => onRemoteCommand(device, 'WIPE')}><AlertTriangle size={16} />Wipe</button>
         </div>
       </article>)}
       {devices.length === 0 && <p className="executive-empty">Device actions will appear here when records are available.</p>}
@@ -1259,12 +1265,11 @@ function RemoteCommandsPage({
   </>
 }
 
-function ApprovalsPage({ devices, workspace, isDemoMode, onOpenDevice, onReview }: {
+function ApprovalsPage({ devices, workspace, isDemoMode, onReview }: {
   devices: Device[]
   workspace: string
   isDemoMode: boolean
-  onOpenDevice: (device: Device) => void
-  onReview: (device: Device, decision: 'Approved' | 'Rejected') => void
+  onReview: (device: Device) => void
 }) {
   const [search, setSearch] = useState('')
   const pending = devices.filter((device) => device.approval === 'Pending')
@@ -1290,10 +1295,8 @@ function ApprovalsPage({ devices, workspace, isDemoMode, onOpenDevice, onReview 
             <div className="approval-card-top"><span className="approval-request-icon"><Smartphone size={21} /></span><span className="approval-request-age"><Clock3 size={14} />Requested {age}</span></div>
             <h3>{device.name}</h3><p>{device.owner} requested access to {device.workspace}.</p>
             <div className="approval-evidence"><span><strong>Device safety</strong><CompliancePill state={device.compliance} /></span><span><strong>Platform</strong><small>{device.platform} {device.version}</small></span></div>
-            <button type="button" className="approval-device-link" onClick={() => void onOpenDevice(device)}>View device details <ChevronRight size={15} /></button>
             <div className="approval-card-actions">
-              <button type="button" className="button button-primary" onClick={() => onReview(device, 'Approved')}><CheckCircle2 size={16} />Approve Access</button>
-              <button type="button" className="button button-danger" onClick={() => onReview(device, 'Rejected')}><X size={16} />Reject</button>
+              <button type="button" className="button button-primary" onClick={() => onReview(device)}><CheckCircle2 size={16} />Review &amp; Decide</button>
             </div>
           </article>
         })}
@@ -1310,11 +1313,10 @@ function CompliancePill({ state }: { state: ComplianceState }) {
   return <span className={`compliance-pill compliance-${tone}`}><Icon size={13} />{state}</span>
 }
 
-function DevicesPage({ devices, isDemoMode, onOpenDevice, onRemoteCommand }: {
+function DevicesPage({ devices, isDemoMode, onOpenDevice }: {
   devices: Device[]
   isDemoMode: boolean
   onOpenDevice: (device: Device) => void
-  onRemoteCommand: (device: Device, command?: RemoteCommand) => void
 }) {
   const [search, setSearch] = useState('')
   const [state, setState] = useState('All approval states')
@@ -1338,8 +1340,8 @@ function DevicesPage({ devices, isDemoMode, onOpenDevice, onRemoteCommand }: {
         const initials = device.owner.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase()
         const isAuthorized = device.approval === 'Approved' && device.compliance === 'Compliant' && device.lifecycleState === 'Active'
         return <article className="device-card" key={device.recordId}>
-          <div className="device-card-top"><DeviceGlyph kind={device.kind} /><span className="device-platform-tag">{device.platform} {device.version}</span><button className="icon-button" aria-label={`Remote actions for ${device.name}`} onClick={() => onRemoteCommand(device)}><MoreHorizontal size={17} /></button></div>
-          <button className="device-card-title" onClick={() => onOpenDevice(device)}><strong>{device.name}</strong><span>{device.hardwareModel ?? 'Hardware model not provided'} · {device.id}</span></button>
+          <div className="device-card-top"><DeviceGlyph kind={device.kind} /><span className="device-platform-tag">{device.platform} {device.version}</span></div>
+          <div className="device-card-title"><strong>{device.name}</strong><span>{device.hardwareModel ?? 'Hardware model not provided'} · {device.id}</span></div>
           <div className="device-card-owner"><span className="owner-avatar">{initials}</span><span><strong>{device.owner}</strong><small>{device.email}</small></span></div>
           <div className="device-card-status">{isAuthorized ? <span className="authorized-pill"><CheckCircle2 size={14} />Authorized</span> : <><ApprovalPill state={device.approval} /><CompliancePill state={device.compliance} /></>}</div>
           <details className="device-signals-disclosure">
@@ -1368,7 +1370,7 @@ function DeviceDetail({ device, onBack, onRemoteCommand }: { device: Device; onB
     <section className="panel detail-panel"><div className="detail-tabs" role="tablist" aria-label="Device information"><button role="tab" aria-selected={tab === 'overview'} className={tab === 'overview' ? 'tab-active' : ''} onClick={() => setTab('overview')}>Overview</button><button role="tab" aria-selected={tab === 'activity'} className={tab === 'activity' ? 'tab-active' : ''} onClick={() => setTab('activity')}>Activity signals <span className="tab-count">7</span></button><button role="tab" aria-selected={tab === 'identifiers'} className={tab === 'identifiers' ? 'tab-active' : ''} onClick={() => setTab('identifiers')}>Identifiers</button></div>
       {tab === 'activity' && <div className="activity-content"><div className="section-title-row"><div><h2>Last-used activity signals</h2><p>Independent timestamps from their authoritative sources. No combined “last used” value.</p></div><span className="freshness-label"><span className="freshness-dot" />Signal timestamps</span></div><div className="signal-grid">{device.signals.map((signal, index) => {
         const Icon = signal.icon
-        return <article className={`signal-card ${index === 6 ? 'signal-logout' : ''}`} key={signal.label}><div className="signal-card-head"><span className="signal-icon"><Icon size={16} /></span><span className="signal-index">0{index + 1}</span></div><h3>{signal.label}</h3><strong className={signal.value ? '' : 'signal-null'}>{signal.value ?? 'Not recorded'}</strong><div className="signal-source"><span>Source</span><span>{signal.source}</span></div>{signal.note && <small className="signal-note">{signal.note}</small>}</article>
+        return <article className={`signal-card ${index === 6 ? 'signal-logout' : ''}`} key={signal.label}><div className="signal-card-head"><span className="signal-icon"><Icon size={16} /></span><span className="signal-index">0{index + 1}</span></div><h3>{signal.label}</h3><strong className={signal.value ? '' : 'signal-null'}>{signal.value ?? 'Not recorded'}</strong><div className="signal-source"><span>Source</span><span>{signal.source}</span></div>{signal.note && signal.value && <small className="signal-note">{signal.note}</small>}</article>
       })}</div><div className="signal-disclaimer"><Shield size={15} /><span>Hardware inventory and remote management data are provided by Intune. A browser PWA cannot read physical MAC addresses or issue OS-level commands.</span></div></div>}
       {tab === 'overview' && <div className="overview-content"><div className="section-title-row"><div><h2>Device overview</h2><p>Identity and enrollment details synchronized from the MDM provider.</p></div><span className="source-chip"><MonitorCog size={14} /> Microsoft Intune</span></div><div className="overview-grid"><InfoField label="Device record" value={device.id} /><InfoField label="Intune managed-device ID" value={device.intuneId} /><InfoField label="Assigned owner" value={device.owner} /><InfoField label="Platform" value={`${device.platform} ${device.version}`} /><InfoField label="Masked serial number" value={device.serial} /><InfoField label="Enrollment date" value={device.enrolled} /><InfoField label="Workspace" value={device.workspace} /><InfoField label="MDM source" value="Microsoft Intune" /></div></div>}
       {tab === 'identifiers' && <div className="overview-content"><div className="section-title-row"><div><h2>Identifiers</h2><p>Sensitive identifiers are masked in the console.</p></div><span className="source-chip"><Fingerprint size={14} /> HMAC lookup enabled</span></div><div className="overview-grid"><InfoField label="Device UUID" value={device.id} /><InfoField label="Intune managed-device ID" value={device.intuneId} /><InfoField label="Serial number" value={device.serial} /><InfoField label="MAC address" value="Not collected by PWA" /></div><div className="signal-disclaimer"><LockKeyhole size={15} /><span>MAC and hardware identifiers are sourced from Intune telemetry and stored as protected lookup values where configured.</span></div></div>}
@@ -1400,8 +1402,12 @@ function AuditPage({ events, isDemoMode, onExport, exporting }: {
 
   return <>
     <PageHeading eyebrow="MODULE 10 / ACCOUNTABILITY" title="Audit & Evidence" description="A clear history of important device and access decisions.">
-      <button className="button button-primary" onClick={() => onExport('csv')} disabled={exporting}><Download size={16} />{exporting ? 'Preparing file…' : 'Export to Excel / CSV'}</button>
-      <button className="button button-secondary" onClick={() => onExport('json')} disabled={exporting}><Download size={16} />JSON</button>
+      <button className="button bg-blue-600 hover:bg-blue-700 text-white fill-white stroke-white" style={{ color: '#ffffff' }} onClick={() => onExport('csv')} disabled={exporting}>
+        <Download size={16} style={{ color: '#ffffff', stroke: '#ffffff' }} />{exporting ? 'Preparing file…' : 'Export to Excel / CSV'}
+      </button>
+      <button className="button button-secondary text-slate-700 stroke-slate-700" style={{ color: '#334155' }} onClick={() => onExport('json')} disabled={exporting}>
+        <Download size={16} style={{ color: '#334155', stroke: '#334155' }} />JSON
+      </button>
     </PageHeading>
     <section className="executive-summary-grid audit-summary">
       <article><span className="summary-icon summary-blue"><Activity size={18} /></span><span>Events in this view</span><strong>{events.length}</strong><small>{isDemoMode ? 'Representative sample' : 'Current workspace'}</small></article>
@@ -1426,15 +1432,14 @@ function AuditPage({ events, isDemoMode, onExport, exporting }: {
   </>
 }
 
-function ReviewDialog({ device, initialDecision, isDemoMode, onClose, onOpenDevice, onSubmit }: {
+function ReviewDialog({ device, isDemoMode, onClose, onOpenDevice, onSubmit }: {
   device: Device
-  initialDecision: 'Approved' | 'Rejected'
   isDemoMode: boolean
   onClose: () => void
   onOpenDevice: (device: Device) => void | Promise<void>
   onSubmit: (decision: 'Approved' | 'Rejected', justification: string) => Promise<void>
 }) {
-  const [decision, setDecision] = useState<'Approved' | 'Rejected'>(initialDecision)
+  const [decision, setDecision] = useState<'Approved' | 'Rejected'>('Approved')
   const [justification, setJustification] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
