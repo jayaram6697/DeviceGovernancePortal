@@ -534,6 +534,7 @@ function App() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true)
+  const [isHelpOpen, setIsHelpOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [auditSearchRequest, setAuditSearchRequest] = useState({ query: '', version: 0 })
@@ -562,6 +563,8 @@ function App() {
   const [remoteCommandInitial, setRemoteCommandInitial] = useState<RemoteCommand>('LOCK')
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const notificationMenuRef = useRef<HTMLDivElement>(null)
+  const helpButtonRef = useRef<HTMLButtonElement>(null)
+  const helpCloseButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -609,12 +612,12 @@ function App() {
           setSelectedDeviceId(sampleDevices[0]?.recordId ?? '')
           setUserEmail(getDemoProfileEmail(tenant))
           setIsDemoMode(true)
-          setConnectionRetryMessage(reloadToken > 0 ? 'The backend is still offline. Demo mode remains available.' : '')
+          setConnectionRetryMessage(reloadToken > 0 ? 'We couldn’t reach the live service. Sample data is still available, and changes stay in this browser.' : '')
         } else {
           setIsDemoMode(false)
           setDemoDataScope(null)
-          setConnectionRetryMessage(reloadToken > 0 ? 'The live service returned an error. See the status message below.' : '')
-          setApiError('Live governance records could not be loaded. No sample data was substituted for a server error.')
+          setConnectionRetryMessage(reloadToken > 0 ? 'The live service returned an error. Please review the message below.' : '')
+          setApiError('We couldn’t load the live records. Please try again; sample data wasn’t substituted.')
         }
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -663,6 +666,22 @@ function App() {
     document.addEventListener('pointerdown', closeOnOutsideClick)
     return () => document.removeEventListener('pointerdown', closeOnOutsideClick)
   }, [isNotificationsOpen])
+
+  useEffect(() => {
+    if (!isHelpOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setIsHelpOpen(false)
+      }
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    helpCloseButtonRef.current?.focus()
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape)
+      helpButtonRef.current?.focus()
+    }
+  }, [isHelpOpen])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -879,7 +898,7 @@ function App() {
       setReloadToken((current) => current + 1)
       window.setTimeout(() => setNotice(''), 5000)
     } catch (error) {
-      setApiError('The sync request could not be completed. No successful synchronization was confirmed.')
+      setApiError('We couldn’t confirm the sync. No successful update was recorded.')
     } finally {
       setIsSyncing(false)
     }
@@ -920,7 +939,7 @@ function App() {
       setReloadToken((current) => current + 1)
       window.setTimeout(() => setNotice(''), 5000)
     } catch (error) {
-      setApiError('The audit file could not be downloaded. No export was confirmed.')
+      setApiError('We couldn’t download the audit file. No export was completed.')
     } finally {
       setExportingAudit(false)
     }
@@ -1096,7 +1115,20 @@ function App() {
           <div className="breadcrumb"><span>{tenant}</span><ChevronRight size={14} /><strong>{screenTitle[screen]}</strong></div>
           <div className="topbar-actions">
             <button className="global-search" type="button" onClick={() => { setSearchQuery(''); setIsSearchOpen(true) }} aria-label="Search devices, users, and modules"><Search size={16} /><span>Search anything</span><kbd>⌘ K</kbd></button>
-            <button className="icon-button topbar-help" aria-label="Help"><CircleHelp size={18} /></button>
+            <button
+              ref={helpButtonRef}
+              className="icon-button topbar-help"
+              type="button"
+              aria-label="Help"
+              aria-haspopup="dialog"
+              aria-expanded={isHelpOpen}
+              aria-controls="help-dialog"
+              onClick={() => {
+                setIsSearchOpen(false)
+                setIsNotificationsOpen(false)
+                setIsHelpOpen(true)
+              }}
+            ><CircleHelp size={18} /></button>
             <div className="notification-anchor" ref={notificationMenuRef}>
               <button
                 className="icon-button notification-button"
@@ -1138,8 +1170,8 @@ function App() {
         <main className="page-content">
           <div className={`connection-banner ${isDemoMode ? 'connection-banner-demo' : ''}`} role="status">
             <span className="connection-banner-icon">{isDemoMode ? <MonitorCog size={18} /> : <ShieldCheck size={18} />}</span>
-            <div><strong>{isLoading ? 'Connecting to governance data…' : connectionRetryMessage ? (isDemoMode ? 'Live connection unavailable · demo mode active' : 'Live connection unavailable') : isDemoMode ? 'Demo mode · backend offline' : 'Governance data connected'}</strong>
-              <span>{connectionRetryMessage || (isDemoMode ? 'Showing representative sample records. Changes are local only and are not sent to connected services.' : isLoading ? 'Loading the selected tenant and workspace.' : `Last device synchronization: ${formatRelativeTime(latestMdmSyncAt) ?? 'not recorded'}.`)}</span>
+            <div><strong>{isLoading ? 'Loading your workspace…' : isDemoMode ? 'Demo Mode: Sample Data' : connectionRetryMessage ? 'Live service needs attention' : 'Governance data connected'}</strong>
+              <span>{connectionRetryMessage || (isDemoMode ? 'You’re viewing sample records. Changes stay in this browser and aren’t sent to a live service.' : isLoading ? 'Loading the selected tenant and workspace.' : `Last device sync: ${formatRelativeTime(latestMdmSyncAt) ?? 'not recorded'}.`)}</span>
             </div>
             {isDemoMode && <div className="connection-banner-actions">
               <button className="button button-secondary" onClick={() => setReloadToken((current) => current + 1)} disabled={isLoading}>Retry live connection</button>
@@ -1148,7 +1180,7 @@ function App() {
           </div>
 
           {apiError && <div className="friendly-error" role="alert"><AlertTriangle size={17} /><span>{apiError}</span><button type="button" aria-label="Dismiss message" onClick={() => setApiError('')}><X size={15} /></button></div>}
-          {isLoading && <div className="loading-state" role="status">Loading devices for {visibleWorkspace}…</div>}
+          {isLoading && <div className="loading-state" role="status">Loading devices in {visibleWorkspace}…</div>}
 
           {screen === 'identity' && <IdentityRolesPage email={userEmail} tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} />}
           {screen === 'scope' && <WorkspaceTenantsPage tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} demoWorkspace={demoWorkspace} onTenantChange={switchTenant} onWorkspaceChange={(next) => isDemoMode ? switchDemoWorkspace(next as DemoWorkspace) : setWorkspace(next)} />}
@@ -1158,6 +1190,10 @@ function App() {
           {screen === 'compliance' && <CompliancePage devices={devices} isDemoMode={isDemoMode} onOpenDevice={openDevice} />}
           {screen === 'detail' && detailLoading && <div className="loading-state" role="status">Loading device details…</div>}
           {screen === 'detail' && !detailLoading && selectedDevice && <DeviceDetail device={selectedDevice} onBack={() => navigate('devices')} onRemoteCommand={openRemoteCommand} />}
+          {screen === 'detail' && !detailLoading && !selectedDevice && <div className="executive-empty detail-empty" role="status">
+            <p>This device isn’t available in the selected workspace.</p>
+            <button type="button" className="button button-secondary" onClick={() => navigate('devices')}>Back to Device Registry</button>
+          </div>}
           {screen === 'audit' && <AuditPage events={audit} isDemoMode={isDemoMode} onExport={exportAudit} exporting={exportingAudit} initialSearch={auditSearchRequest.query} searchRequestVersion={auditSearchRequest.version} />}
           {screen === 'access' && <PwaAccessPage devices={devices} isDemoMode={isDemoMode} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} onEvaluate={testPwaAccess} />}
           {screen === 'signals' && <SignalsPage devices={devices} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} />}
@@ -1234,6 +1270,59 @@ function App() {
         </section>
       </div>}
 
+      {isHelpOpen && <div
+        className="modal-backdrop help-modal-backdrop"
+        onMouseDown={(event) => { if (event.target === event.currentTarget) setIsHelpOpen(false) }}
+      >
+        <section className="help-dialog" id="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-dialog-title">
+          <header className="help-dialog-header">
+            <div><CircleHelp size={20} /><h2 id="help-dialog-title">Quick Guide</h2></div>
+            <button
+              ref={helpCloseButtonRef}
+              className="icon-button"
+              type="button"
+              aria-label="Close help"
+              onClick={() => setIsHelpOpen(false)}
+            ><X size={18} /></button>
+          </header>
+          <div className="help-dialog-body">
+            <section className="help-dialog-section">
+              <h3>Start here</h3>
+              <p>Choose a tenant and workspace from the left sidebar. This filters the devices, access requests, and activity shown across the portal. The number beside Approval Queue shows requests waiting for review.</p>
+            </section>
+            <section className="help-dialog-section">
+              <h3>What the colors mean</h3>
+              <ul className="help-status-list">
+                <li><span className="help-status-dot help-status-healthy" aria-hidden="true" /><span><strong>Green:</strong> healthy, compliant, or approved.</span></li>
+                <li><span className="help-status-dot help-status-review" aria-hidden="true" /><span><strong>Amber:</strong> waiting for review or needs attention.</span></li>
+                <li><span className="help-status-dot help-status-action" aria-hidden="true" /><span><strong>Red:</strong> action required, rejected, or not compliant.</span></li>
+                <li><span className="help-status-dot help-status-info" aria-hidden="true" /><span><strong>Blue:</strong> information or demo/sample data.</span></li>
+              </ul>
+            </section>
+            <section className="help-dialog-section">
+              <h3>Common tasks</h3>
+              <ul>
+                <li>In Approval Queue, review a request, choose Approve or Reject, and enter a reason. The decision is added to Audit &amp; Evidence.</li>
+                <li>Use Device Registry to find a device and open its details. Compliance Posture shows which devices meet company security rules.</li>
+                <li>PWA Gatekeeper checks whether a device can open a company app. Lock, Retire, and Wipe require a reason and confirmation.</li>
+                <li>Review recent activity in Activity Signals. Audit &amp; Evidence lets you search activity and export a report.</li>
+              </ul>
+            </section>
+            <section className="help-dialog-section help-dialog-mode">
+              <h3>Connection and device sync</h3>
+              <p>{isDemoMode
+                ? 'Demo Mode: Sample Data is active. Changes are saved only in this browser and aren’t sent to a live service.'
+                : isLoading
+                  ? 'The portal is connecting to the selected tenant and workspace.'
+                  : apiError
+                    ? 'Live records could not be loaded. Check the status message at the top of the page.'
+                    : 'Your device and activity records are loaded from the connected service.'}</p>
+              <p>Intune sync is a demo feature in this build. It updates sample timestamps and does not connect to Microsoft Intune.</p>
+            </section>
+          </div>
+        </section>
+      </div>}
+
       {reviewDevice && <ReviewDialog key={reviewDevice.recordId} device={reviewDevice} isDemoMode={isDemoMode} onClose={() => setReviewDeviceId(null)} onOpenDevice={openDevice} onSubmit={submitDecision} />}
       {remoteCommandDevice && <RemoteCommandDialog device={remoteCommandDevice} initialCommand={remoteCommandInitial} isDemoMode={isDemoMode} onClose={() => setRemoteCommandDevice(null)} onSubmit={runRemoteCommand} />}
       {notice && <div className="toast" role="status"><Check size={17} />{notice}<button className="toast-close" aria-label="Dismiss message" onClick={() => setNotice('')}><X size={15} /></button></div>}
@@ -1284,7 +1373,7 @@ function PwaAccessPage({
   }
 
   return <>
-    <PageHeading eyebrow="MODULE 7 / APPLICATION ACCESS" title="PWA Gatekeeper" description="Check whether a device meets the safeguards for GateLogiq Workspace." />
+    <PageHeading eyebrow="MODULE 7 / APPLICATION ACCESS" title="PWA Gatekeeper" description="Check whether a device meets company security rules before opening a work app." />
     <div className="simulator-layout">
     <section className="panel access-simulator">
       <div className="panel-heading"><div><h2>Check device security</h2><p>Choose a device to see whether it is ready to access the workspace.</p></div><span className="source-chip"><Shield size={14} /> {isDemoMode ? 'Demo check' : 'Security check'}</span></div>
@@ -1459,7 +1548,7 @@ function IntunePage({
 }) {
   const isHealthy = syncIsFresh && !isDemoMode
   return <>
-    <PageHeading eyebrow="MODULE 5 / DEVICE MANAGEMENT" title="Intune Sync" description="Keep your company device inventory up to date." />
+    <PageHeading eyebrow="MODULE 5 / DEVICE MANAGEMENT" title="Intune Sync" description="Keep your company device list up to date." />
     <section className={`executive-sync-hero ${isHealthy ? 'sync-hero-healthy' : ''}`} aria-label="Intune connection status">
       <div className="sync-hero-top">
         <span className="sync-hero-icon"><MonitorCog size={24} /></span>
@@ -1471,9 +1560,9 @@ function IntunePage({
         </span>
       </div>
       <div className="sync-hero-stats">
-        <div><span>Last synchronized</span><strong>{formatRelativeTime(latestSyncAt) ?? 'Not recorded'}</strong></div>
-        <div><span>Total cloud devices</span><strong>{isDemoMode ? '1,284' : devices.length.toLocaleString()}</strong></div>
-        <div><span>Sync freshness</span><strong>{isDemoMode ? 'Sample' : syncIsFresh ? 'Within 60 minutes' : 'Over 60 minutes'}</strong></div>
+        <div><span>Last updated</span><strong>{formatRelativeTime(latestSyncAt) ?? 'Not recorded'}</strong></div>
+        <div><span>Devices in inventory</span><strong>{isDemoMode ? '1,284' : devices.length.toLocaleString()}</strong></div>
+        <div><span>Data freshness</span><strong>{isDemoMode ? 'Sample data' : syncIsFresh ? 'Within 60 minutes' : 'Over 60 minutes'}</strong></div>
       </div>
       <div className="sync-hero-actions">
         <button className="button button-primary" onClick={onSync} disabled={isSyncing}>
@@ -1498,11 +1587,11 @@ function CompliancePage({ devices, isDemoMode, onOpenDevice }: { devices: Device
   const policies = [
     { title: 'Operating system policy', detail: 'iOS 17+ and Windows 11 devices are supported.', status: 'Policy active' },
     { title: 'Disk encryption', detail: 'BitLocker and FileVault evidence is required.', status: 'Policy active' },
-    { title: 'Freshness SLA', detail: 'Device records should sync within 60 minutes.', status: 'Policy active' },
+    { title: 'Sync freshness', detail: 'Device records should update within 60 minutes.', status: 'Policy active' },
   ]
 
   return <>
-    <PageHeading eyebrow="MODULE 6 / DEVICE SAFETY" title="Compliance Posture" description="See the safeguards your organization expects and which devices may need attention." />
+    <PageHeading eyebrow="MODULE 6 / DEVICE SAFETY" title="Compliance Posture" description="See which devices meet company security rules and which need attention." />
     <section className="compliance-summary">
       <div><span className="compliance-summary-icon"><ShieldCheck size={20} /></span><span>Devices meeting policy</span><strong>{complianceRate}</strong><small>{compliantCount} of {devices.length} records</small></div>
       <div><span className="compliance-summary-icon compliance-summary-warning"><AlertTriangle size={20} /></span><span>Needs attention</span><strong>{(nonCompliantCount + staleCount).toLocaleString()}</strong><small>Non-compliant or out of date</small></div>
@@ -1534,7 +1623,7 @@ function SignalsPage({
   const selected = devices.find((device) => device.recordId === selectedDeviceId) ?? devices[0]
 
   return <>
-    <PageHeading eyebrow="MODULE 8 / SOURCED TELEMETRY" title="Activity Signals" description="Inspect the seven independently sourced activity timestamps for a managed device.">
+    <PageHeading eyebrow="MODULE 8 / DEVICE ACTIVITY" title="Activity Signals" description="See when this device last connected, checked in, and reported activity.">
       <label className="module-device-picker"><span>Device</span><select value={selected?.recordId ?? ''} onChange={(event) => onSelectDevice(event.target.value)} disabled={devices.length === 0}>
         {devices.length === 0 && <option value="">No devices available</option>}
         {devices.map((device) => <option key={device.recordId} value={device.recordId}>{device.name} · {device.owner}</option>)}
@@ -1696,7 +1785,7 @@ function DeviceDetail({ device, onBack, onRemoteCommand }: { device: Device; onB
     <div className="detail-title-row"><div className="detail-identity"><DeviceGlyph kind={device.kind} /><div><div className="eyebrow">DEVICE RECORD / {device.id}</div><h1>{device.name}</h1><p>{device.owner} <i /> {device.email}</p></div></div><button className="button button-secondary" onClick={() => onRemoteCommand(device)}><MoreHorizontal size={16} /> Remote command <ChevronDown size={14} /></button></div>
     <section className="device-status-strip"><div className="device-status-intro"><span className="mini-label">LIFECYCLE STATUS</span><span>Access decision and security posture are independent.</span><span className={`lifecycle-pill lifecycle-${device.lifecycleState.toLowerCase()}`}>{device.lifecycleState}</span></div><div className="state-pair"><div><span className="mini-label">APPROVAL</span><ApprovalPill state={device.approval} /></div><div><span className="mini-label">COMPLIANCE</span><CompliancePill state={device.compliance} /></div></div><div className="workspace-status"><span className="mini-label">WORKSPACE</span><strong><span className="workspace-indicator" />{device.workspace}</strong></div></section>
     <section className="panel detail-panel"><div className="detail-tabs" role="tablist" aria-label="Device information"><button role="tab" aria-selected={tab === 'overview'} className={tab === 'overview' ? 'tab-active' : ''} onClick={() => setTab('overview')}>Overview</button><button role="tab" aria-selected={tab === 'activity'} className={tab === 'activity' ? 'tab-active' : ''} onClick={() => setTab('activity')}>Activity signals <span className="tab-count">7</span></button><button role="tab" aria-selected={tab === 'identifiers'} className={tab === 'identifiers' ? 'tab-active' : ''} onClick={() => setTab('identifiers')}>Identifiers</button></div>
-      {tab === 'activity' && <div className="activity-content"><div className="section-title-row"><div><h2>Last-used activity signals</h2><p>Independent timestamps from their authoritative sources. No combined “last used” value.</p></div><span className="freshness-label"><span className="freshness-dot" />Signal timestamps</span></div><div className="signal-grid">{device.signals.map((signal, index) => {
+      {tab === 'activity' && <div className="activity-content"><div className="section-title-row"><div>      <h2>Recent device activity</h2><p>Each date comes from a separate system. A missing date does not automatically mean something is wrong.</p></div><span className="freshness-label"><span className="freshness-dot" />Signal timestamps</span></div><div className="signal-grid">{device.signals.map((signal, index) => {
         const Icon = signal.icon
         return <article className={`signal-card ${index === 6 ? 'signal-logout' : ''}`} key={signal.label}><div className="signal-card-head"><span className="signal-icon"><Icon size={16} /></span><span className="signal-index">0{index + 1}</span></div><h3>{signal.label}</h3><strong className={signal.value ? '' : 'signal-null'}>{signal.value ?? 'Not recorded'}</strong><div className="signal-source"><span>Source</span><span>{signal.source}</span></div>{signal.note && signal.value && <small className="signal-note">{signal.note}</small>}</article>
       })}</div><div className="signal-disclaimer"><Shield size={15} /><span>Hardware inventory and remote management data are provided by Intune. A browser PWA cannot read physical MAC addresses or issue OS-level commands.</span></div></div>}
@@ -1785,7 +1874,7 @@ function ReviewDialog({ device, isDemoMode, onClose, onOpenDevice, onSubmit }: {
     try {
       await onSubmit(decision, justification)
     } catch (submitError) {
-      setError('The decision could not be completed. No server-side approval was confirmed.')
+      setError('We couldn’t complete the decision. No change was confirmed; please try again.')
     } finally {
       setIsSubmitting(false)
     }
@@ -1835,7 +1924,7 @@ function RemoteCommandDialog({
     try {
       await onSubmit(command, reason.trim())
     } catch (submitError) {
-      setError('The command could not be completed. No successful device action was confirmed.')
+      setError('We couldn’t complete the device action. No change was confirmed; please try again.')
     } finally {
       setIsSubmitting(false)
     }
