@@ -84,6 +84,64 @@ type AuditEvent = {
   target: string
   outcome: 'Success' | 'SUCCESS' | 'Denied' | 'Review'
   reason: string
+  scope?: string
+}
+
+type PersistedDemoState = {
+  approvals: Record<string, ApprovalState>
+  audit: AuditEvent[]
+}
+
+function demoStateStorageKey(tenant: string, workspace: DemoWorkspace): string {
+  return `gatelogiq-demo-v1:${encodeURIComponent(tenant)}:${encodeURIComponent(workspace)}`
+}
+
+function isApprovalState(value: unknown): value is ApprovalState {
+  return value === 'Pending' || value === 'Approved' || value === 'Rejected'
+    || value === 'Suspended' || value === 'Revoked'
+}
+
+function isAuditEvent(value: unknown): value is AuditEvent {
+  if (typeof value !== 'object' || value === null) return false
+  const event = value as Record<string, unknown>
+  return typeof event.eventId === 'string'
+    && typeof event.correlationId === 'string'
+    && typeof event.date === 'string'
+    && typeof event.time === 'string'
+    && typeof event.actor === 'string'
+    && typeof event.role === 'string'
+    && typeof event.action === 'string'
+    && typeof event.target === 'string'
+    && (event.outcome === 'Success' || event.outcome === 'SUCCESS' || event.outcome === 'Denied' || event.outcome === 'Review')
+    && typeof event.reason === 'string'
+    && (event.scope === undefined || typeof event.scope === 'string')
+}
+
+function readPersistedDemoState(storageKey: string): PersistedDemoState | null {
+  const serialized = window.localStorage.getItem(storageKey)
+  if (!serialized) return null
+  const parsed: unknown = JSON.parse(serialized)
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error('Stored demo data has an invalid format.')
+  }
+  const value = parsed as Record<string, unknown>
+  const storedApprovals = value.approvals
+  if (typeof storedApprovals !== 'object' || storedApprovals === null || Array.isArray(storedApprovals)
+    || !Array.isArray(value.audit) || !value.audit.every(isAuditEvent)) {
+    throw new Error('Stored demo data is incomplete or invalid.')
+  }
+  const approvals = Object.create(null) as Record<string, ApprovalState>
+  for (const [deviceId, approval] of Object.entries(storedApprovals as Record<string, unknown>)) {
+    if (!isApprovalState(approval)) throw new Error('Stored demo approval state is invalid.')
+    approvals[deviceId] = approval
+  }
+  return { approvals, audit: value.audit }
+}
+
+function persistDemoState(storageKey: string, devices: Device[], audit: AuditEvent[]): void {
+  const approvals = Object.create(null) as Record<string, ApprovalState>
+  for (const device of devices) approvals[device.recordId] = device.approval
+  window.localStorage.setItem(storageKey, JSON.stringify({ approvals, audit } satisfies PersistedDemoState))
 }
 
 function formatRelativeTime(value: string | null): string | null {
@@ -291,7 +349,7 @@ function createDemoAudit(): AuditEvent[] {
   })
 }
 
-function createDemoAuditEvent(action: string, target: string, reason: string): AuditEvent {
+function createDemoAuditEvent(action: string, target: string, reason: string, scope?: string): AuditEvent {
   const occurredAt = new Date()
   const eventId = `DEMO-EVT-${occurredAt.getTime()}`
   return {
@@ -305,18 +363,30 @@ function createDemoAuditEvent(action: string, target: string, reason: string): A
     target,
     outcome: 'Success',
     reason: `${reason} (local demo only; not sent to the backend)`,
+    ...(scope ? { scope } : {}),
+  }
+}
+
+function loadDemoWorkspaceData(tenant: string, workspace: DemoWorkspace): { devices: Device[]; audit: AuditEvent[] } {
+  const seededDevices = createDemoDevices(workspace)
+  const persisted = readPersistedDemoState(demoStateStorageKey(tenant, workspace))
+  return {
+    devices: persisted
+      ? seededDevices.map((device) => ({ ...device, approval: persisted.approvals[device.recordId] ?? device.approval }))
+      : seededDevices,
+    audit: persisted?.audit ?? createDemoAudit(),
   }
 }
 
 function downloadDemoAuditExport(events: AuditEvent[], format: 'csv' | 'json') {
-  const columns: (keyof AuditEvent)[] = ['eventId', 'date', 'time', 'actor', 'role', 'action', 'target', 'outcome', 'reason', 'correlationId']
+  const columns: (keyof AuditEvent)[] = ['eventId', 'date', 'time', 'actor', 'role', 'scope', 'action', 'target', 'outcome', 'reason', 'correlationId']
   const csvField = (value: string) => {
     const safeValue = /^[\t\r ]*[=+\-@]/.test(value) ? `'${value}` : value
     return `"${safeValue.replace(/"/g, '""')}"`
   }
   const content = format === 'json'
     ? JSON.stringify(events, null, 2)
-    : [columns.join(','), ...events.map((event) => columns.map((column) => csvField(String(event[column]))).join(','))].join('\r\n')
+    : [columns.join(','), ...events.map((event) => columns.map((column) => csvField(String(event[column] ?? ''))).join(','))].join('\r\n')
   const blob = new Blob([content], { type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8' })
   const objectUrl = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -396,6 +466,9 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isDemoMode, setIsDemoMode] = useState(false)
   const [demoWorkspace, setDemoWorkspace] = useState<DemoWorkspace>('Engineering')
+  const demoWorkspaceRef = useRef<DemoWorkspace>('Engineering')
+  demoWorkspaceRef.current = demoWorkspace
+  const [demoDataScope, setDemoDataScope] = useState<{ tenant: string; workspace: DemoWorkspace } | null>(null)
   const [screen, setScreen] = useState<Screen>('approvals')
   const [devices, setDevices] = useState<Device[]>([])
   const [audit, setAudit] = useState<AuditEvent[]>([])
@@ -406,6 +479,7 @@ function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const [apiError, setApiError] = useState('')
+  const [connectionRetryMessage, setConnectionRetryMessage] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
   const [reloadToken, setReloadToken] = useState(0)
@@ -421,8 +495,11 @@ function App() {
     let cancelled = false
     setIsLoading(true)
     setApiError('')
-    setDevices([])
-    setAudit([])
+    setConnectionRetryMessage('')
+    if (!isDemoMode) {
+      setDevices([])
+      setAudit([])
+    }
     const loadGovernanceData = async () => {
       try {
         const scope = getApiScope(tenant, workspace)
@@ -432,20 +509,37 @@ function App() {
         setDevices(mappedDevices)
         setAudit(auditRecords.map(mapAuditRecord))
         setIsDemoMode(false)
+        setDemoDataScope(null)
         setSelectedDeviceId((current) => mappedDevices.some((device) => device.recordId === current)
           ? current
           : mappedDevices[0]?.recordId ?? '')
       } catch (error) {
         if (cancelled) return
         if (error instanceof TypeError) {
-          const sampleDevices = createDemoDevices(demoWorkspace)
+          const fallbackWorkspace = demoWorkspaceRef.current
+          let sampleDevices: Device[]
+          let sampleAudit: AuditEvent[]
+          try {
+            const demoData = loadDemoWorkspaceData(tenant, fallbackWorkspace)
+            sampleDevices = demoData.devices
+            sampleAudit = demoData.audit
+            setApiError('')
+          } catch (storageError) {
+            console.error('Unable to restore saved demo data.', storageError)
+            sampleDevices = createDemoDevices(demoWorkspace)
+            sampleAudit = createDemoAudit()
+            setApiError('Saved demo data could not be restored; the initial sample data is shown.')
+          }
           setDevices(sampleDevices)
-          setAudit(createDemoAudit())
+          setAudit(sampleAudit)
+          setDemoDataScope({ tenant, workspace: fallbackWorkspace })
           setSelectedDeviceId(sampleDevices[0]?.recordId ?? '')
           setIsDemoMode(true)
-          setApiError('')
+          setConnectionRetryMessage(reloadToken > 0 ? 'The backend is still offline. Demo mode remains available.' : '')
         } else {
           setIsDemoMode(false)
+          setDemoDataScope(null)
+          setConnectionRetryMessage(reloadToken > 0 ? 'The live service returned an error. See the status message below.' : '')
           setApiError('Live governance records could not be loaded. No sample data was substituted for a server error.')
         }
       } finally {
@@ -455,6 +549,17 @@ function App() {
     void loadGovernanceData()
     return () => { cancelled = true }
   }, [isAuthenticated, tenant, workspace, reloadToken])
+
+  useEffect(() => {
+    if (!isAuthenticated || !isDemoMode || isLoading || !demoDataScope
+      || demoDataScope.tenant !== tenant || demoDataScope.workspace !== demoWorkspace) return
+    try {
+      persistDemoState(demoStateStorageKey(tenant, demoWorkspace), devices, audit)
+    } catch (storageError) {
+      console.error('Unable to save demo data.', storageError)
+      setApiError('Local demo changes could not be saved in this browser.')
+    }
+  }, [isAuthenticated, isDemoMode, isLoading, demoDataScope, tenant, demoWorkspace, devices, audit])
 
   useEffect(() => {
     if (!profileMenuOpen) return
@@ -516,7 +621,7 @@ function App() {
   const screenTitle: Record<Screen, string> = {
     identity: 'Authentication & Roles',
     scope: 'Workspace & Tenants',
-    approvals: 'Approval queue',
+    approvals: 'Approval Queue',
     devices: 'Device registry',
     intune: 'Intune sync',
     compliance: 'Compliance posture',
@@ -567,6 +672,7 @@ function App() {
         decision === 'Approved' ? 'DEVICE_APPROVED' : 'DEVICE_REJECTED',
         reviewDevice.name,
         justification.trim(),
+        `${tenant} / ${demoWorkspace}`,
       ), ...current])
       setReviewDeviceId(null)
       setNotice(`Demo action: ${reviewDevice.name} locally marked ${decision.toLowerCase()}. No server-side decision was made.`)
@@ -696,14 +802,43 @@ function App() {
   }
 
   function switchDemoWorkspace(next: DemoWorkspace) {
+    demoWorkspaceRef.current = next
     setDemoWorkspace(next)
-    const sampleDevices = createDemoDevices(next)
+    let demoData: { devices: Device[]; audit: AuditEvent[] }
+    try {
+      demoData = loadDemoWorkspaceData(tenant, next)
+      setApiError('')
+    } catch (storageError) {
+      console.error('Unable to restore saved demo data.', storageError)
+      demoData = { devices: createDemoDevices(next), audit: createDemoAudit() }
+      setApiError('Saved demo data could not be restored; the initial sample data is shown.')
+    }
+    setDevices(demoData.devices)
+    setAudit(demoData.audit)
+    setDemoDataScope({ tenant, workspace: next })
+    setSelectedDeviceId(demoData.devices[0]?.recordId ?? '')
+    setReviewDeviceId(null)
+    setNotice(`Demo workspace switched to ${next}.`)
+    window.setTimeout(() => setNotice(''), 4000)
+  }
+
+  function resetDemoData() {
+    if (!isDemoMode) return
+    try {
+      window.localStorage.removeItem(demoStateStorageKey(tenant, demoWorkspace))
+    } catch (storageError) {
+      console.error('Unable to clear saved demo data.', storageError)
+      setApiError('Saved demo data could not be cleared in this browser.')
+      return
+    }
+    const sampleDevices = createDemoDevices(demoWorkspace)
     setDevices(sampleDevices)
     setAudit(createDemoAudit())
     setSelectedDeviceId(sampleDevices[0]?.recordId ?? '')
     setReviewDeviceId(null)
-    setNotice(`Demo workspace switched to ${next}.`)
-    window.setTimeout(() => setNotice(''), 4000)
+    setApiError('')
+    setNotice('Demo data has been restored to its initial state.')
+    window.setTimeout(() => setNotice(''), 5000)
   }
 
   function navigate(next: Screen) {
@@ -835,10 +970,13 @@ function App() {
         <main className="page-content">
           <div className={`connection-banner ${isDemoMode ? 'connection-banner-demo' : ''}`} role="status">
             <span className="connection-banner-icon">{isDemoMode ? <MonitorCog size={18} /> : <ShieldCheck size={18} />}</span>
-            <div><strong>{isLoading ? 'Connecting to governance data…' : isDemoMode ? 'Demo mode · backend offline' : 'Governance data connected'}</strong>
-              <span>{isDemoMode ? 'Showing representative sample records. Changes are local only and are not sent to connected services.' : isLoading ? 'Loading the selected tenant and workspace.' : `Last device synchronization: ${formatRelativeTime(latestMdmSyncAt) ?? 'not recorded'}.`}</span>
+            <div><strong>{isLoading ? 'Connecting to governance data…' : connectionRetryMessage ? (isDemoMode ? 'Live connection unavailable · demo mode active' : 'Live connection unavailable') : isDemoMode ? 'Demo mode · backend offline' : 'Governance data connected'}</strong>
+              <span>{connectionRetryMessage || (isDemoMode ? 'Showing representative sample records. Changes are local only and are not sent to connected services.' : isLoading ? 'Loading the selected tenant and workspace.' : `Last device synchronization: ${formatRelativeTime(latestMdmSyncAt) ?? 'not recorded'}.`)}</span>
             </div>
-            {isDemoMode && <button className="button button-secondary" onClick={() => setReloadToken((current) => current + 1)} disabled={isLoading}>Retry live connection</button>}
+            {isDemoMode && <div className="connection-banner-actions">
+              <button className="button button-secondary" onClick={() => setReloadToken((current) => current + 1)} disabled={isLoading}>Retry live connection</button>
+              <button className="button button-secondary" onClick={resetDemoData}>Reset Demo Data</button>
+            </div>}
           </div>
 
           {apiError && <div className="friendly-error" role="alert"><AlertTriangle size={17} /><span>{apiError}</span><button type="button" aria-label="Dismiss message" onClick={() => setApiError('')}><X size={15} /></button></div>}
@@ -1272,9 +1410,11 @@ function ApprovalsPage({ devices, workspace, isDemoMode, onReview }: {
   onReview: (device: Device) => void
 }) {
   const [search, setSearch] = useState('')
+  const searchTerm = search.trim().toLowerCase()
   const pending = devices.filter((device) => device.approval === 'Pending')
   const filteredPending = pending.filter((device) =>
-    `${device.name} ${device.owner} ${device.email} ${device.id}`.toLowerCase().includes(search.toLowerCase()))
+    `${device.name} ${device.owner} ${device.email} ${device.id} ${device.workspace} ${device.platform} ${device.version}`
+      .toLowerCase().includes(searchTerm))
   const approvedCount = devices.filter((device) => device.approval === 'Approved').length
   const attentionCount = devices.filter((device) => device.compliance !== 'Compliant').length
 
@@ -1286,11 +1426,14 @@ function ApprovalsPage({ devices, workspace, isDemoMode, onReview }: {
       <article><span className="summary-icon summary-amber"><ShieldAlert size={18} /></span><span>Posture needs attention</span><strong>{attentionCount}</strong><small>Review the device safety details</small></article>
     </section>
     <section className="executive-list-panel">
-      <div className="executive-section-heading"><div><span className="executive-kicker">ACTION REQUIRED</span><h2>Access requests</h2><p>Approval changes require a short reason and are added to the audit history.</p></div><span className="source-chip"><span className="workspace-indicator" />{isDemoMode ? 'Sample requests' : 'Current requests'}</span></div>
-      <label className="executive-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search requests or people" /></label>
+      <div className="executive-section-heading"><div><span className="executive-kicker">ACTION REQUIRED</span><h2>Access requests</h2><p>Approval changes require a short reason and are added to the audit history.</p></div></div>
+      <div className="approval-request-toolbar">
+        <label className="executive-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search requests or people" /></label>
+        <span className="source-chip"><span className="workspace-indicator" />{isDemoMode ? 'Sample requests' : 'Current requests'}</span>
+      </div>
       <div className="approval-card-grid">
         {filteredPending.map((device) => {
-          const age = isDemoMode && device.name.includes("Sarah's") ? '20 minutes ago' : formatRelativeTime(device.signals.find((signal) => signal.label === 'PWA authentication')?.occurredAt ?? null) ?? 'Recently'
+          const age = formatRelativeTime(device.signals.find((signal) => signal.label === 'PWA authentication')?.occurredAt ?? null) ?? 'Recently'
           return <article className="approval-request-card" key={device.recordId}>
             <div className="approval-card-top"><span className="approval-request-icon"><Smartphone size={21} /></span><span className="approval-request-age"><Clock3 size={14} />Requested {age}</span></div>
             <h3>{device.name}</h3><p>{device.owner} requested access to {device.workspace}.</p>
@@ -1392,7 +1535,7 @@ function AuditPage({ events, isDemoMode, onExport, exporting }: {
   const [outcome, setOutcome] = useState('All outcomes')
   const [copied, setCopied] = useState('')
   const filtered = useMemo(() => events.filter((event) => {
-    const matchesSearch = `${event.actor} ${event.action} ${event.target} ${event.correlationId} ${event.eventId} ${event.reason}`.toLowerCase().includes(search.toLowerCase())
+    const matchesSearch = `${event.actor} ${event.action} ${event.target} ${event.correlationId} ${event.eventId} ${event.reason} ${event.scope ?? ''}`.toLowerCase().includes(search.toLowerCase())
     return matchesSearch && (outcome === 'All outcomes' || event.outcome === outcome)
   }), [events, outcome, search])
 
@@ -1422,7 +1565,7 @@ function AuditPage({ events, isDemoMode, onExport, exporting }: {
           {event.outcome === 'Success' || event.outcome === 'SUCCESS' ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}
         </span>
         <div className="audit-event-main"><div><strong>{event.action.replace(/_/g, ' ')}</strong><StatusPill tone={event.outcome.toLowerCase() === 'success' ? 'success' : event.outcome.toLowerCase() as 'denied' | 'review'}>{event.outcome}</StatusPill></div>
-          <p>{event.reason}</p><small>{event.actor} · {event.role} · {event.date} at {event.time}</small>
+          <p>{event.reason}</p><small>{event.actor} · {event.role} · {event.date} at {event.time}{event.scope ? ` · ${event.scope}` : ''}</small>
         </div>
         <div className="audit-event-target"><span>Related to</span><strong>{event.target}</strong><button className="correlation-copy" title="Copy reference ID" onClick={() => void copyCorrelation(event.correlationId)}>{copied === event.correlationId ? 'Copied' : event.correlationId}{copied === event.correlationId ? <Check size={14} /> : <Copy size={14} />}</button></div>
       </article>)}
