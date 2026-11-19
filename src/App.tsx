@@ -697,12 +697,12 @@ function App() {
     identity: 'Authentication & Roles',
     scope: 'Workspace & Tenants',
     approvals: 'Approval Queue',
-    devices: 'Device registry',
-    intune: 'Intune sync',
-    compliance: 'Compliance posture',
-    access: 'PWA gatekeeper',
-    signals: 'Activity signals',
-    commands: 'Remote commands',
+    devices: 'Device Registry',
+    intune: 'Intune Sync',
+    compliance: 'Compliance Posture',
+    access: 'PWA Gatekeeper',
+    signals: 'Activity Signals',
+    commands: 'Remote Commands',
     audit: 'Audit & Evidence',
     detail: 'Device details',
   }
@@ -1534,7 +1534,7 @@ function SignalsPage({
   const selected = devices.find((device) => device.recordId === selectedDeviceId) ?? devices[0]
 
   return <>
-    <PageHeading eyebrow="MODULE 8 / SOURCED TELEMETRY" title="Activity signals" description="Inspect the seven independently sourced activity timestamps for a managed device.">
+    <PageHeading eyebrow="MODULE 8 / SOURCED TELEMETRY" title="Activity Signals" description="Inspect the seven independently sourced activity timestamps for a managed device.">
       <label className="module-device-picker"><span>Device</span><select value={selected?.recordId ?? ''} onChange={(event) => onSelectDevice(event.target.value)} disabled={devices.length === 0}>
         {devices.length === 0 && <option value="">No devices available</option>}
         {devices.map((device) => <option key={device.recordId} value={device.recordId}>{device.name} · {device.owner}</option>)}
