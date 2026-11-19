@@ -488,8 +488,53 @@ const navSections: { title: string; links: { label: string; screen: Screen; icon
   },
 ]
 
-function StatusPill({ children, tone }: { children: string; tone: 'pending' | 'approved' | 'rejected' | 'compliant' | 'noncompliant' | 'stale' | 'success' | 'denied' | 'review' }) {
-  return <span className={`status-pill status-${tone}`}><span className="status-dot" />{children}</span>
+type StatusTone = 'pending' | 'approved' | 'rejected' | 'compliant' | 'noncompliant' | 'stale' | 'success' | 'denied' | 'review'
+
+const statusHelp: Record<StatusTone, string> = {
+  pending: 'Waiting for an administrator to review this request.',
+  approved: 'Approved for access; the device must still meet security rules.',
+  rejected: 'This access request was declined.',
+  compliant: 'The device meets the current security rules.',
+  noncompliant: 'The device does not meet one or more security rules.',
+  stale: 'The device security information may be out of date.',
+  success: 'This action completed successfully.',
+  denied: 'Access was blocked by the security check.',
+  review: 'This item needs a closer look.',
+}
+
+const auditActionNames: Record<string, string> = {
+  DEVICE_SYNCED: 'Device list updated',
+  DEVICE_APPROVAL_REQUESTED: 'Access request received',
+  COMPLIANCE_CHECK: 'Security check',
+  DEVICE_APPROVED: 'Device approved',
+  DEVICE_REJECTED: 'Device request rejected',
+  PWA_ACCESS_ALLOWED: 'App access allowed',
+  PWA_ACCESS_BLOCKED: 'App access blocked',
+  DEMO_SYNC_REQUESTED: 'Device sync requested',
+  DEMO_REMOTE_LOCK: 'Lock action recorded',
+  DEMO_REMOTE_RETIRE: 'Device retirement recorded',
+  DEMO_REMOTE_WIPE: 'Wipe request recorded',
+  AUDIT_EXPORT_GENERATED: 'Activity report exported',
+}
+
+function friendlyAuditAction(action: string) {
+  const knownName = auditActionNames[action]
+  if (knownName) return knownName
+  return action.replace(/_/g, ' ').toLowerCase().replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+}
+
+function StatusPill({ children, tone, title }: { children: string; tone: StatusTone; title?: string }) {
+  return <span className={`status-pill status-${tone}`} title={title ?? statusHelp[tone]}><span className="status-dot" />{children}</span>
+}
+
+function lifecycleHelp(state: string) {
+  switch (state) {
+    case 'Active': return 'This device is active in the selected workspace.'
+    case 'Suspended': return 'Workspace access is temporarily blocked for this device.'
+    case 'Retired': return 'This device is marked as retired.'
+    case 'WipeIssued': return 'A wipe action was recorded; this demo does not erase the physical device.'
+    default: return 'Current device lifecycle status.'
+  }
 }
 
 function DeviceGlyph({ kind }: { kind: DeviceKind }) {
@@ -513,17 +558,17 @@ function LoginPage({ onSignIn }: { onSignIn: (email: string) => void }) {
     <section className="login-card" aria-labelledby="login-title">
       <div className="login-brand-mark"><ShieldCheck size={25} strokeWidth={1.9} /></div>
       <div className="login-brand-name">GateLogiq <span>DEVICE GOVERNANCE</span></div>
-      <div className="login-heading"><h1 id="login-title">Sign in to your account</h1><p>Use your enterprise email and password to continue.</p></div>
+      <div className="login-heading"><h1 id="login-title">Sign in to your account</h1><p>Explore sample device, access, and activity records.</p></div>
       <form className="login-form" onSubmit={submit}>
         <label className="login-field"><span>Email address</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" autoComplete="username" required /></label>
         <label className="login-field"><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" autoComplete="current-password" required /></label>
         <div className="login-options">
-          <button type="button" className="forgot-password" onClick={() => setHelpMessage('Password resets are not configured in demo mode.')}>Forgot password?</button>
+          <button type="button" className="forgot-password" title="Password reset is not available in the demo." onClick={() => setHelpMessage('Password reset isn’t available in the demo.')}>Forgot password?</button>
         </div>
         {helpMessage && <p className="login-help-message" role="status">{helpMessage}</p>}
         <button className="login-submit" type="submit">Sign In</button>
       </form>
-      <p className="login-demo-notice">Demo sign-in · Identity provider is not configured.</p>
+      <p className="login-demo-notice">Demo sign-in · Enter an email and any password to explore.</p>
     </section>
   </main>
 }
@@ -783,8 +828,8 @@ function App() {
     notifications.push({
       id: `audit:${event.eventId}`,
       icon: '🧾',
-      title: 'Audit event needs review',
-      description: `${event.action.replace(/_/g, ' ')} · ${event.target}`,
+      title: 'Activity needs review',
+      description: `${friendlyAuditAction(event.action)} · ${event.target}`,
       screen: 'audit',
       auditSearch: event.correlationId,
     })
@@ -1091,7 +1136,7 @@ function App() {
           </div>)}
         </nav>
         <div className="sidebar-bottom">
-          <div className={`sync-mini ${syncStatusClass}`} role="status">
+          <div className={`sync-mini ${syncStatusClass}`} role="status" title={isDemoMode ? 'Sample timestamps only; there is no live Intune connection.' : isMdmSyncFresh ? 'The latest live device sync is recent.' : 'The latest live device sync is more than 60 minutes old.'}>
             <span className="sync-mini-dot" aria-hidden="true" />
             <span>{isDemoMode
               ? 'Intune Sync: Simulated (Demo Data)'
@@ -1111,15 +1156,16 @@ function App() {
 
       <div className="main-column">
         <header className="topbar">
-          <button className="icon-button mobile-menu" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button>
+          <button className="icon-button mobile-menu" aria-label="Open navigation" title="Open the module menu" onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button>
           <div className="breadcrumb"><span>{tenant}</span><ChevronRight size={14} /><strong>{screenTitle[screen]}</strong></div>
           <div className="topbar-actions">
-            <button className="global-search" type="button" onClick={() => { setSearchQuery(''); setIsSearchOpen(true) }} aria-label="Search devices, users, and modules"><Search size={16} /><span>Search anything</span><kbd>⌘ K</kbd></button>
+            <button className="global-search" type="button" onClick={() => { setSearchQuery(''); setIsSearchOpen(true) }} aria-label="Search devices, users, and modules" title="Search devices, people, modules, and audit activity in this workspace."><Search size={16} /><span>Search anything</span><kbd>⌘ K</kbd></button>
             <button
               ref={helpButtonRef}
               className="icon-button topbar-help"
               type="button"
               aria-label="Help"
+              title="Open the Quick Guide."
               aria-haspopup="dialog"
               aria-expanded={isHelpOpen}
               aria-controls="help-dialog"
@@ -1134,6 +1180,7 @@ function App() {
                 className="icon-button notification-button"
                 type="button"
                 aria-label="Notifications"
+                title="View recent updates for this workspace."
                 aria-haspopup="dialog"
                 aria-expanded={isNotificationsOpen}
                 aria-controls="notification-menu"
@@ -1174,8 +1221,8 @@ function App() {
               <span>{connectionRetryMessage || (isDemoMode ? 'You’re viewing sample records. Changes stay in this browser and aren’t sent to a live service.' : isLoading ? 'Loading the selected tenant and workspace.' : `Last device sync: ${formatRelativeTime(latestMdmSyncAt) ?? 'not recorded'}.`)}</span>
             </div>
             {isDemoMode && <div className="connection-banner-actions">
-              <button className="button button-secondary" onClick={() => setReloadToken((current) => current + 1)} disabled={isLoading}>Retry live connection</button>
-              <button className="button button-secondary" onClick={resetDemoData}>Reset Demo Data</button>
+              <button className="button button-secondary" title="Try loading live records again." onClick={() => setReloadToken((current) => current + 1)} disabled={isLoading}>Retry live connection</button>
+              <button className="button button-secondary" title="Restore the original sample records in this browser." onClick={resetDemoData}>Reset Demo Data</button>
             </div>}
           </div>
 
@@ -1262,7 +1309,7 @@ function App() {
                 }}
               >
                 <span className="global-search-result-icon"><FileClock size={17} /></span>
-                <span><strong>{event.action.replace(/_/g, ' ')}</strong><small>{event.target} · {event.actor} · {event.correlationId}</small></span>
+                <span><strong>{friendlyAuditAction(event.action)}</strong><small>{event.target} · {event.actor} · {event.correlationId}</small></span>
                 <ChevronRight size={16} />
               </button>)}
             </>}
@@ -1388,7 +1435,7 @@ function PwaAccessPage({
           <option value="com.northstar.analytics">GateLogiq Analytics</option>
         </select></label>
         {selected && <div className="access-subject"><DeviceGlyph kind={selected.kind} /><div><strong>{selected.owner}</strong><span>{selected.email} · {selected.workspace}</span></div><span className="access-subject-id">User ID: {selected.ownerUserId}</span></div>}
-        <button className="button button-primary access-test-button" onClick={() => void evaluate()} disabled={!selected || isEvaluating}>
+        <button className="button button-primary access-test-button" title="Check approval, device security, and lifecycle status for this app." onClick={() => void evaluate()} disabled={!selected || isEvaluating}>
           <ShieldCheck size={16} />{isEvaluating ? 'Evaluating access…' : 'Evaluate Access Decision'}
         </button>
       </div>
@@ -1423,10 +1470,10 @@ function PwaAccessPage({
                 : result.reasonCode === 'DEVICE_LIFECYCLE_INACTIVE'
                   ? 'Access Blocked: This device is inactive and cannot access the workspace.'
                   : 'Access was blocked because this device does not meet the workspace access requirements.'}</p>
-        {result.decision === 'DENY' && <div className="access-reason-code"><span>Reason code</span><code>{result.reasonCode}</code></div>}
+        {result.decision === 'DENY' && <div className="access-reason-code" title="Share this reference with your administrator to identify why access was blocked."><span>Support reference</span><code>{result.reasonCode}</code></div>}
         {result.grant && <div className="access-grant">
-          <div><span>Mock grant token</span><code>{result.grant.token}</code></div>
-          <div><span>Expires</span><strong>{new Date(result.grant.expiresAt).toLocaleTimeString()}</strong></div>
+          <div title="A temporary demo token returned by the access check."><span>Demo access token</span><code>{result.grant.token}</code></div>
+          <div title="The time this temporary token stops being valid."><span>Expires</span><strong>{new Date(result.grant.expiresAt).toLocaleTimeString()}</strong></div>
           <div className="access-scopes"><span>Valid scopes</span><div>{result.grant.scopes.map((scope) => <code key={scope}>{scope}</code>)}</div></div>
         </div>}
         <div className="access-correlation">Correlation ID <code>{result.correlationId}</code></div>
@@ -1447,7 +1494,7 @@ function IdentityRolesPage({
   isDemoMode: boolean
 }) {
   return <>
-    <PageHeading eyebrow="MODULE 1 / IDENTITY AND ACCESS" title="Authentication & Roles" description="A clear view of your account, security status, and what you can manage." />
+    <PageHeading eyebrow="MODULE 1 / IDENTITY AND ACCESS" title="Authentication & Roles" description="See who is signed in and what they can manage, so access stays accountable." />
     <section className="executive-user-card">
       <div className="executive-user-avatar"><Users size={24} /></div>
       <div className="executive-user-main">
@@ -1455,13 +1502,13 @@ function IdentityRolesPage({
         <h2>Customer IT Administrator</h2>
         <p>{email || 'Administrator account'} <span>·</span> {tenant}</p>
       </div>
-      <span className={`executive-status ${isDemoMode ? 'executive-status-demo' : ''}`}>
-        <CheckCircle2 size={16} /> {isDemoMode ? 'MFA Verified · demo profile' : 'MFA status not provided'}
+      <span className={`executive-status ${isDemoMode ? 'executive-status-demo' : ''}`} title={isDemoMode ? 'Sample profile only; no real multi-factor check was performed.' : 'Multi-factor sign-in status was not provided by the sign-in service.'}>
+        <CheckCircle2 size={16} /> {isDemoMode ? 'Demo profile · sample security' : 'Sign-in security not reported'}
       </span>
       <div className="executive-user-facts">
-        <div><span>Assigned workspaces</span><strong>{isDemoMode ? 'All' : workspace}</strong></div>
-        <div><span>Security posture</span><strong>{isDemoMode ? 'MFA Verified' : 'Not available from sign-in provider'}</strong></div>
-        <div><span>Account status</span><strong>Active</strong></div>
+        <div title="Workspaces this account can view."><span>Assigned workspaces</span><strong>{isDemoMode ? 'All' : workspace}</strong></div>
+        <div title={isDemoMode ? 'Sample only; the portal does not verify multi-factor sign-in.' : 'This information is not supplied by the sign-in service.'}><span>Multi-factor sign-in</span><strong>{isDemoMode ? 'Sample only' : 'Not reported'}</strong></div>
+        <div title="The current profile is active in this portal session."><span>Account status</span><strong>Active</strong></div>
       </div>
     </section>
     <section className="executive-permissions">
@@ -1497,22 +1544,22 @@ function WorkspaceTenantsPage({
     { name: 'Field Logistics', devices: '18', teams: 'Field teams', icon: Smartphone },
   ]
   return <>
-    <PageHeading eyebrow="MODULE 2 / TENANT AND WORKSPACE" title="Workspace & Tenants" description="Choose the team workspace whose devices and access requests you want to review." />
+    <PageHeading eyebrow="MODULE 2 / TENANT AND WORKSPACE" title="Workspace & Tenants" description="Choose a company and workspace to see the right devices and access requests." />
     <section className="workspace-tenant-bar">
       <label><span>Tenant</span><select value={tenant} onChange={(event) => onTenantChange(event.target.value)} aria-label="Select tenant">
         <option>Acme Corporation</option><option>Northwind Health</option><option>Contoso Group</option>
       </select></label>
-      <span><span className="workspace-indicator" />{isDemoMode ? 'Sample portfolio' : 'Live tenant scope'}</span>
+      <span title={isDemoMode ? 'The counts on this screen are representative samples.' : 'The selected tenant controls which records are shown.'}><span className="workspace-indicator" />{isDemoMode ? 'Sample portfolio' : 'Selected company'}</span>
     </section>
     {isDemoMode
       ? <section className="executive-workspace-grid" aria-label="Available workspaces">
         {demoWorkspaceCards.map(({ name, devices, teams, icon: Icon }) => {
           const isActive = demoWorkspace === name
           return <article className={`executive-workspace-card ${isActive ? 'workspace-card-active' : ''}`} key={name}>
-            <div className="workspace-card-top"><span className="workspace-card-icon"><Icon size={20} /></span>{isActive && <span className="workspace-active-badge"><Check size={13} /> Active</span>}</div>
+            <div className="workspace-card-top"><span className="workspace-card-icon"><Icon size={20} /></span>{isActive && <span className="workspace-active-badge" title="This is the workspace currently shown throughout the portal."><Check size={13} /> Active</span>}</div>
             <h2>{name}</h2><p>{teams}</p>
-            <div className="workspace-card-count"><strong>{devices}</strong><span>managed devices</span></div>
-            <button type="button" className={`button ${isActive ? 'button-secondary' : 'button-primary'}`} disabled={isActive} onClick={() => onWorkspaceChange(name)}>
+            <div className="workspace-card-count" title="Representative device count for this sample workspace."><strong>{devices}</strong><span>managed devices</span></div>
+            <button type="button" className={`button ${isActive ? 'button-secondary' : 'button-primary'}`} title={isActive ? 'This workspace is already selected.' : `Show devices and requests for ${name}.`} disabled={isActive} onClick={() => onWorkspaceChange(name)}>
               {isActive ? 'Current workspace' : 'Switch workspace'}
             </button>
           </article>
@@ -1548,33 +1595,28 @@ function IntunePage({
 }) {
   const isHealthy = syncIsFresh && !isDemoMode
   return <>
-    <PageHeading eyebrow="MODULE 5 / DEVICE MANAGEMENT" title="Intune Sync" description="Keep your company device list up to date." />
+    <PageHeading eyebrow="MODULE 5 / DEVICE MANAGEMENT" title="Intune Sync" description="Check when the device list was updated and refresh it when needed." />
     <section className={`executive-sync-hero ${isHealthy ? 'sync-hero-healthy' : ''}`} aria-label="Intune connection status">
       <div className="sync-hero-top">
         <span className="sync-hero-icon"><MonitorCog size={24} /></span>
-        <div><span className="executive-kicker">MICROSOFT INTUNE CONNECTION</span>
+        <div title="This status reflects the API connection; sample data does not confirm a live Intune connection."><span className="executive-kicker">MICROSOFT INTUNE CONNECTION</span>
           <h2>{isDemoMode ? 'Demo preview · connection not verified' : isHealthy ? 'Healthy & online' : 'Needs attention'}</h2>
         </div>
-        <span className={`executive-status ${isDemoMode ? 'executive-status-demo' : isHealthy ? '' : 'executive-status-attention'}`}>
+        <span className={`executive-status ${isDemoMode ? 'executive-status-demo' : isHealthy ? '' : 'executive-status-attention'}`} title={isDemoMode ? 'These are sample device records; no live Intune sync was checked.' : isHealthy ? 'The latest live device sync is within the expected freshness window.' : 'The latest device sync is missing or more than 60 minutes old.'}>
           <span className="workspace-indicator" />{isDemoMode ? 'Sample data' : isHealthy ? 'Connected' : 'Check sync'}
         </span>
       </div>
       <div className="sync-hero-stats">
-        <div><span>Last updated</span><strong>{formatRelativeTime(latestSyncAt) ?? 'Not recorded'}</strong></div>
-        <div><span>Devices in inventory</span><strong>{isDemoMode ? '1,284' : devices.length.toLocaleString()}</strong></div>
-        <div><span>Data freshness</span><strong>{isDemoMode ? 'Sample data' : syncIsFresh ? 'Within 60 minutes' : 'Over 60 minutes'}</strong></div>
+        <div title="How recently the device records were updated."><span>Last updated</span><strong>{formatRelativeTime(latestSyncAt) ?? 'Not recorded'}</strong></div>
+        <div title="Number of device records in the selected workspace."><span>Devices in inventory</span><strong>{isDemoMode ? '1,284' : devices.length.toLocaleString()}</strong></div>
+        <div title="Device records should be updated at least once every 60 minutes."><span>Data freshness</span><strong>{isDemoMode ? 'Sample data' : syncIsFresh ? 'Within 60 minutes' : 'Over 60 minutes'}</strong></div>
       </div>
       <div className="sync-hero-actions">
-        <button className="button button-primary" onClick={onSync} disabled={isSyncing}>
+        <button className="button button-primary" title={isDemoMode ? 'Refreshes sample timestamps only; it does not contact Microsoft Intune.' : 'Request a device inventory refresh.'} onClick={onSync} disabled={isSyncing}>
           <RefreshCw size={16} className={isSyncing ? 'sync-spinning' : ''} />{isSyncing ? 'Syncing…' : 'Sync with Intune Now'}
         </button>
         <span>{isDemoMode ? 'This button updates sample timestamps locally.' : 'Sync requests are sent through the governance service.'}</span>
       </div>
-    </section>
-    <section className="executive-summary-grid">
-      <article><span className="summary-icon summary-blue"><Smartphone size={18} /></span><span>In this workspace</span><strong>{devices.length.toLocaleString()}</strong><small>Representative device records</small></article>
-      <article><span className="summary-icon summary-green"><CheckCircle2 size={18} /></span><span>Last sync</span><strong>{latestSyncAt ? new Date(latestSyncAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'}</strong><small>{latestSyncAt ? new Date(latestSyncAt).toLocaleDateString() : 'No timestamp available'}</small></article>
-      <article><span className="summary-icon summary-blue"><ShieldCheck size={18} /></span><span>Provider</span><strong>Microsoft Intune</strong><small>Managed device inventory</small></article>
     </section>
   </>
 }
@@ -1584,6 +1626,8 @@ function CompliancePage({ devices, isDemoMode, onOpenDevice }: { devices: Device
   const nonCompliantCount = devices.filter((device) => device.compliance === 'Non-compliant').length
   const staleCount = devices.filter((device) => device.compliance === 'Stale').length
   const complianceRate = devices.length ? `${Math.round(compliantCount / devices.length * 100)}%` : '—'
+  const prioritizedDevices = [...devices].sort((first, second) =>
+    Number(first.compliance === 'Compliant') - Number(second.compliance === 'Compliant'))
   const policies = [
     { title: 'Operating system policy', detail: 'iOS 17+ and Windows 11 devices are supported.', status: 'Policy active' },
     { title: 'Disk encryption', detail: 'BitLocker and FileVault evidence is required.', status: 'Policy active' },
@@ -1593,20 +1637,20 @@ function CompliancePage({ devices, isDemoMode, onOpenDevice }: { devices: Device
   return <>
     <PageHeading eyebrow="MODULE 6 / DEVICE SAFETY" title="Compliance Posture" description="See which devices meet company security rules and which need attention." />
     <section className="compliance-summary">
-      <div><span className="compliance-summary-icon"><ShieldCheck size={20} /></span><span>Devices meeting policy</span><strong>{complianceRate}</strong><small>{compliantCount} of {devices.length} records</small></div>
-      <div><span className="compliance-summary-icon compliance-summary-warning"><AlertTriangle size={20} /></span><span>Needs attention</span><strong>{(nonCompliantCount + staleCount).toLocaleString()}</strong><small>Non-compliant or out of date</small></div>
-    </section>
-    <section className="policy-card-grid" aria-label="Active security policies">
-      {policies.map((policy) => <article className="policy-card" key={policy.title}>
-        <span className="policy-check"><Check size={18} /></span><div><h2>{policy.title}</h2><p>{policy.detail}</p></div><span className="policy-state">{policy.status}</span>
-      </article>)}
+      <div title="Share of device records that meet the current security rules."><span className="compliance-summary-icon"><ShieldCheck size={20} /></span><span>Devices meeting policy</span><strong>{complianceRate}</strong><small>{compliantCount} of {devices.length} records</small></div>
+      <div title="Devices that do not meet policy or have out-of-date security information."><span className="compliance-summary-icon compliance-summary-warning"><AlertTriangle size={20} /></span><span>Needs attention</span><strong>{(nonCompliantCount + staleCount).toLocaleString()}</strong><small>Non-compliant or out of date</small></div>
     </section>
     <section className="executive-list-panel">
-      <div className="executive-section-heading"><div><span className="executive-kicker">DEVICE CHECKS</span><h2>Posture by device</h2><p>Policy settings are active; these are the current device results.</p></div><span className="source-chip"><ShieldCheck size={14} />{isDemoMode ? 'Sample checks' : 'Reported posture'}</span></div>
-      {devices.map((device) => <button type="button" className="executive-device-row" key={device.recordId} onClick={() => void onOpenDevice(device)}>
+      <div className="executive-section-heading"><div><span className="executive-kicker">DEVICE CHECKS</span><h2>Devices by security status</h2><p>Devices needing attention appear first. Select one to see details.</p></div><span className="source-chip" title={isDemoMode ? 'These are sample device checks.' : 'These results were reported by the connected service.'}><ShieldCheck size={14} />{isDemoMode ? 'Sample checks' : 'Reported results'}</span></div>
+      {prioritizedDevices.map((device) => <button type="button" className="executive-device-row" key={device.recordId} title="Open this device’s details and recent activity." onClick={() => void onOpenDevice(device)}>
         <DeviceGlyph kind={device.kind} /><span><strong>{device.name}</strong><small>{device.owner} · Last checked {formatRelativeTime(device.lastMdmSyncAt) ?? 'not recorded'}</small></span><CompliancePill state={device.compliance} /><ChevronRight size={17} />
       </button>)}
       {devices.length === 0 && <p className="executive-empty">Device posture will appear here when records are available.</p>}
+    </section>
+    <section className="policy-card-grid" aria-label="Active security policies">
+      {policies.map((policy) => <article className="policy-card" key={policy.title} title={policy.detail}>
+        <span className="policy-check"><Check size={18} /></span><div><h2>{policy.title}</h2><p>{policy.detail}</p></div><span className="policy-state" title="This rule is currently active.">{policy.status}</span>
+      </article>)}
     </section>
   </>
 }
@@ -1624,7 +1668,7 @@ function SignalsPage({
 
   return <>
     <PageHeading eyebrow="MODULE 8 / DEVICE ACTIVITY" title="Activity Signals" description="See when this device last connected, checked in, and reported activity.">
-      <label className="module-device-picker"><span>Device</span><select value={selected?.recordId ?? ''} onChange={(event) => onSelectDevice(event.target.value)} disabled={devices.length === 0}>
+      <label className="module-device-picker" title="Choose which device’s activity dates to view."><span>Device</span><select value={selected?.recordId ?? ''} onChange={(event) => onSelectDevice(event.target.value)} disabled={devices.length === 0}>
         {devices.length === 0 && <option value="">No devices available</option>}
         {devices.map((device) => <option key={device.recordId} value={device.recordId}>{device.name} · {device.owner}</option>)}
       </select></label>
@@ -1635,7 +1679,7 @@ function SignalsPage({
         <section className="signal-grid module-signal-grid" aria-label="Seven device activity signals">
           {selected.signals.map((signal, index) => {
             const Icon = signal.icon
-            return <article className={`signal-card ${index === 6 ? 'signal-logout' : ''}`} key={signal.label}>
+            return <article className={`signal-card ${index === 6 ? 'signal-logout' : ''}`} key={signal.label} title={signal.note ? `${signal.source}: ${signal.note}` : `${friendlySignalTitle(signal.label)} reported by ${signal.source}.`}>
               <div className="signal-card-head"><span className="signal-icon"><Icon size={16} /></span><span className="signal-index">0{index + 1}</span></div>
               <h3>{friendlySignalTitle(signal.label)}</h3>
               <strong className={signal.occurredAt ? '' : 'signal-null'}>{signal.occurredAt ? new Date(signal.occurredAt).toLocaleString() : 'Not recorded'}</strong>
@@ -1660,15 +1704,15 @@ function RemoteCommandsPage({
   onRemoteCommand: (device: Device, command?: RemoteCommand) => void
 }) {
   return <>
-    <PageHeading eyebrow="MODULE 9 / DEVICE CARE" title="Remote Commands" description="Choose a device action. Every command requires a reason and a final confirmation." />
+    <PageHeading eyebrow="MODULE 9 / DEVICE CARE" title="Remote Commands" description="Choose a device action and record why it is needed." />
     <section className="remote-device-grid">
       {devices.map((device) => <article className="remote-device-card" key={device.recordId}>
-        <div className="remote-device-heading"><DeviceGlyph kind={device.kind} /><span><strong>{device.name}</strong><small>{device.owner} · {device.workspace}</small></span><span className={`lifecycle-pill lifecycle-${device.lifecycleState.toLowerCase()}`}>{device.lifecycleState}</span></div>
+        <div className="remote-device-heading"><DeviceGlyph kind={device.kind} /><span><strong>{device.name}</strong><small>{device.owner} · {device.workspace}</small></span><span className={`lifecycle-pill lifecycle-${device.lifecycleState.toLowerCase()}`} title={lifecycleHelp(device.lifecycleState)}>{device.lifecycleState}</span></div>
         <p>Choose an action for this device:</p>
         <div className="remote-action-grid">
-          <button type="button" className="remote-action-lock" onClick={() => onRemoteCommand(device, 'LOCK')}><LockKeyhole size={16} />Lock</button>
-          <button type="button" className="remote-action-retire" onClick={() => onRemoteCommand(device, 'RETIRE')}><Package size={16} />Retire</button>
-          <button type="button" className="remote-action-wipe" onClick={() => onRemoteCommand(device, 'WIPE')}><AlertTriangle size={16} />Wipe</button>
+          <button type="button" className="remote-action-lock" title={isDemoMode ? 'Demo only: records a lock action; it does not lock the physical device.' : 'Record a lock action and block workspace access.'} onClick={() => onRemoteCommand(device, 'LOCK')}><LockKeyhole size={16} />Lock</button>
+          <button type="button" className="remote-action-retire" title={isDemoMode ? 'Demo only: marks this sample device as retired.' : 'Mark the device as retired and block workspace access.'} onClick={() => onRemoteCommand(device, 'RETIRE')}><Package size={16} />Retire</button>
+          <button type="button" className="remote-action-wipe" title={isDemoMode ? 'Demo only: records a wipe action; it does not erase the physical device.' : 'Record a wipe action. This build does not erase a physical device.'} onClick={() => onRemoteCommand(device, 'WIPE')}><AlertTriangle size={16} />Wipe</button>
         </div>
       </article>)}
       {devices.length === 0 && <p className="executive-empty">Device actions will appear here when records are available.</p>}
@@ -1693,17 +1737,17 @@ function ApprovalsPage({ devices, workspace, isDemoMode, onReview }: {
   const attentionCount = devices.filter((device) => device.compliance !== 'Compliant').length
 
   return <>
-    <PageHeading eyebrow="MODULE 4 / ACCESS REQUESTS" title="Approval Queue" description="Review devices that are waiting for secure workspace access." />
+    <PageHeading eyebrow="MODULE 4 / ACCESS REQUESTS" title="Approval Queue" description="Review access requests and record a reason for each decision." />
     <section className="executive-summary-grid approval-summary">
-      <article><span className="summary-icon summary-amber"><Clock3 size={18} /></span><span>Waiting for review</span><strong>{pending.length}</strong><small>Requests in {workspace}</small></article>
-      <article><span className="summary-icon summary-green"><CheckCircle2 size={18} /></span><span>Approved devices</span><strong>{approvedCount}</strong><small>Approval does not replace security checks</small></article>
-      <article><span className="summary-icon summary-amber"><ShieldAlert size={18} /></span><span>Posture needs attention</span><strong>{attentionCount}</strong><small>Review the device safety details</small></article>
+      <article title="Requests in this workspace that still need a decision."><span className="summary-icon summary-amber"><Clock3 size={18} /></span><span>Waiting for review</span><strong>{pending.length}</strong><small>Requests in {workspace}</small></article>
+      <article title="Devices approved to request access; they must still meet security rules."><span className="summary-icon summary-green"><CheckCircle2 size={18} /></span><span>Approved devices</span><strong>{approvedCount}</strong><small>Approval does not replace security checks</small></article>
+      <article title="Devices that are waiting for approval or have a security issue."><span className="summary-icon summary-amber"><ShieldAlert size={18} /></span><span>Posture needs attention</span><strong>{attentionCount}</strong><small>Review the device safety details</small></article>
     </section>
     <section className="executive-list-panel">
       <div className="executive-section-heading"><div><span className="executive-kicker">ACTION REQUIRED</span><h2>Access requests</h2><p>Approval changes require a short reason and are added to the audit history.</p></div></div>
       <div className="approval-request-toolbar">
-        <label className="executive-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search requests or people" /></label>
-        <span className="source-chip"><span className="workspace-indicator" />{isDemoMode ? 'Sample requests' : 'Current requests'}</span>
+        <label className="executive-search" title="Find requests by device, owner, or workspace."><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search requests or people" /></label>
+        <span className="source-chip" title={isDemoMode ? 'Representative requests for the demo.' : 'Requests in the selected workspace.'}><span className="workspace-indicator" />{isDemoMode ? 'Sample requests' : 'Current requests'}</span>
       </div>
       <div className="approval-card-grid">
         {filteredPending.map((device) => {
@@ -1713,7 +1757,7 @@ function ApprovalsPage({ devices, workspace, isDemoMode, onReview }: {
             <h3>{device.name}</h3><p>{device.owner} requested access to {device.workspace}.</p>
             <div className="approval-evidence"><span><strong>Device safety</strong><CompliancePill state={device.compliance} /></span><span><strong>Platform</strong><small>{device.platform} {device.version}</small></span></div>
             <div className="approval-card-actions">
-              <button type="button" className="button button-primary" onClick={() => onReview(device)}><CheckCircle2 size={16} />Review &amp; Decide</button>
+              <button type="button" className="button button-primary" title="Review the device details and record an approval decision with a reason." onClick={() => onReview(device)}><CheckCircle2 size={16} />Review &amp; Decide</button>
             </div>
           </article>
         })}
@@ -1727,7 +1771,12 @@ function ApprovalsPage({ devices, workspace, isDemoMode, onReview }: {
 function CompliancePill({ state }: { state: ComplianceState }) {
   const tone = state === 'Compliant' ? 'compliant' : state === 'Stale' ? 'stale' : 'noncompliant'
   const Icon = state === 'Compliant' ? CheckCircle2 : state === 'Stale' ? Clock3 : AlertTriangle
-  return <span className={`compliance-pill compliance-${tone}`}><Icon size={13} />{state}</span>
+  const title = state === 'Compliant'
+    ? 'The device meets the current security rules.'
+    : state === 'Stale'
+      ? 'The device security information may be out of date.'
+      : 'The device does not meet one or more security rules.'
+  return <span className={`compliance-pill compliance-${tone}`} title={title}><Icon size={13} />{state}</span>
 }
 
 function DevicesPage({ devices, isDemoMode, onOpenDevice }: {
@@ -1742,15 +1791,15 @@ function DevicesPage({ devices, isDemoMode, onOpenDevice }: {
       .toLowerCase().includes(search.toLowerCase())
       && (state === 'All approval states' || device.approval === state))
   return <>
-    <PageHeading eyebrow="MODULE 3 / MANAGED DEVICES" title="Device Registry" description="A simple view of the devices connected to your organization." />
+    <PageHeading eyebrow="MODULE 3 / MANAGED DEVICES" title="Device Registry" description="Find company devices and check their owners, approvals, and security status." />
     <section className="executive-summary-grid">
-      <article><span className="summary-icon summary-blue"><Smartphone size={18} /></span><span>Devices in view</span><strong>{devices.length}</strong><small>{isDemoMode ? 'Representative sample' : 'Current workspace'}</small></article>
-      <article><span className="summary-icon summary-green"><ShieldCheck size={18} /></span><span>Authorized</span><strong>{devices.filter((device) => device.approval === 'Approved' && device.compliance === 'Compliant' && device.lifecycleState === 'Active').length}</strong><small>Approved and meeting policy</small></article>
-      <article><span className="summary-icon summary-amber"><Clock3 size={18} /></span><span>Needs review</span><strong>{devices.filter((device) => device.approval === 'Pending' || device.compliance !== 'Compliant').length}</strong><small>Approval or safety action needed</small></article>
+      <article title="Number of device records in the selected workspace."><span className="summary-icon summary-blue"><Smartphone size={18} /></span><span>Devices in view</span><strong>{devices.length}</strong><small>{isDemoMode ? 'Representative sample' : 'Current workspace'}</small></article>
+      <article title="Approved, compliant devices that are still active."><span className="summary-icon summary-green"><ShieldCheck size={18} /></span><span>Ready for access</span><strong>{devices.filter((device) => device.approval === 'Approved' && device.compliance === 'Compliant' && device.lifecycleState === 'Active').length}</strong><small>Approved and meeting policy</small></article>
+      <article title="Devices waiting for approval or needing a security update."><span className="summary-icon summary-amber"><Clock3 size={18} /></span><span>Needs review</span><strong>{devices.filter((device) => device.approval === 'Pending' || device.compliance !== 'Compliant').length}</strong><small>Approval or safety action needed</small></article>
     </section>
     <section className="executive-list-panel">
-      <div className="executive-section-heading"><div><span className="executive-kicker">DEVICE OVERVIEW</span><h2>Your managed devices</h2><p>Owner, model, and access readiness at a glance.</p></div><span className="source-chip"><MonitorCog size={14} />{isDemoMode ? 'Sample inventory' : 'Current inventory'}</span></div>
-      <div className="table-toolbar executive-device-toolbar"><label className="search-field"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search devices or owners" /></label><label className="filter-select"><ListFilter size={15} /><select value={state} onChange={(event) => setState(event.target.value)} aria-label="Filter by approval state"><option>All approval states</option><option>Pending</option><option>Approved</option><option>Rejected</option><option>Suspended</option><option>Revoked</option></select><ChevronDown size={14} /></label></div>
+      <div className="executive-section-heading"><div><span className="executive-kicker">DEVICE OVERVIEW</span><h2>Your managed devices</h2><p>Owner, model, and access readiness at a glance.</p></div><span className="source-chip" title={isDemoMode ? 'Representative sample records for this workspace.' : 'Live records for the selected workspace.'}><MonitorCog size={14} />{isDemoMode ? 'Sample inventory' : 'Current inventory'}</span></div>
+      <div className="table-toolbar executive-device-toolbar"><label className="search-field" title="Find devices by name, owner, email, platform, or ID."><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search devices or owners" /></label><label className="filter-select" title="Show devices with a selected approval status."><ListFilter size={15} /><select value={state} onChange={(event) => setState(event.target.value)} aria-label="Filter by approval state"><option>All approval states</option><option>Pending</option><option>Approved</option><option>Rejected</option><option>Suspended</option><option>Revoked</option></select><ChevronDown size={14} /></label></div>
       <div className="device-card-grid">{filtered.map((device) => {
         const latestActivity = device.signals.reduce<string | null>((latest, signal) =>
           signal.occurredAt && (!latest || new Date(signal.occurredAt) > new Date(latest)) ? signal.occurredAt : latest, null)
@@ -1760,12 +1809,12 @@ function DevicesPage({ devices, isDemoMode, onOpenDevice }: {
           <div className="device-card-top"><DeviceGlyph kind={device.kind} /><span className="device-platform-tag">{device.platform} {device.version}</span></div>
           <div className="device-card-title"><strong>{device.name}</strong><span>{device.hardwareModel ?? 'Hardware model not provided'} · {device.id}</span></div>
           <div className="device-card-owner"><span className="owner-avatar">{initials}</span><span><strong>{device.owner}</strong><small>{device.email}</small></span></div>
-          <div className="device-card-status">{isAuthorized ? <span className="authorized-pill"><CheckCircle2 size={14} />Authorized</span> : <><ApprovalPill state={device.approval} /><CompliancePill state={device.compliance} /></>}</div>
+          <div className="device-card-status">{isAuthorized ? <span className="authorized-pill" title="Approved, compliant, and active in this workspace."><CheckCircle2 size={14} />Ready for access</span> : <><ApprovalPill state={device.approval} /><CompliancePill state={device.compliance} /></>}</div>
           <details className="device-signals-disclosure">
-            <summary><span>Recent activity</span><ChevronDown size={14} /></summary>
+            <summary title="Expand to see the individual device activity dates."><span>Recent activity</span><ChevronDown size={14} /></summary>
             <div className="device-signals-list">{device.signals.map((signal) => <div className="device-signal-item" key={signal.label}><span>{friendlySignalTitle(signal.label)}</span><strong>{signal.value ?? 'Not recorded'}</strong></div>)}</div>
           </details>
-          <div className="device-card-footer"><span className="device-last-activity"><Activity size={14} />{formatRelativeTime(latestActivity) ?? 'No recent activity'}</span><button className="button button-tertiary" onClick={() => onOpenDevice(device)}>View details <ChevronRight size={14} /></button></div>
+          <div className="device-card-footer"><span className="device-last-activity" title="Most recent activity reported for this device."><Activity size={14} />{formatRelativeTime(latestActivity) ?? 'No recent activity'}</span><button className="button button-tertiary" title="See the device status, activity dates, and identifiers." onClick={() => onOpenDevice(device)}>View details <ChevronRight size={14} /></button></div>
         </article>
       })}{filtered.length === 0 && <div className="empty-devices">No devices match these filters.</div>}</div>
       <div className="table-footer"><span>Showing <strong>{filtered.length}</strong> device records {isDemoMode ? 'from the sample inventory' : 'in this workspace'}</span></div>
@@ -1775,22 +1824,31 @@ function DevicesPage({ devices, isDemoMode, onOpenDevice }: {
 
 function ApprovalPill({ state }: { state: ApprovalState }) {
   const tone = state === 'Approved' ? 'approved' : state === 'Pending' ? 'pending' : 'rejected'
-  return <StatusPill tone={tone}>{state}</StatusPill>
+  const title = state === 'Approved'
+    ? statusHelp.approved
+    : state === 'Pending'
+      ? statusHelp.pending
+      : state === 'Rejected'
+        ? statusHelp.rejected
+        : state === 'Suspended'
+          ? 'Workspace access is temporarily blocked for this device.'
+          : 'Workspace access has been revoked for this device.'
+  return <StatusPill tone={tone} title={title}>{state}</StatusPill>
 }
 
 function DeviceDetail({ device, onBack, onRemoteCommand }: { device: Device; onBack: () => void; onRemoteCommand: (device: Device, command?: RemoteCommand) => void }) {
   const [tab, setTab] = useState<'overview' | 'activity' | 'identifiers'>('activity')
   return <>
-    <button className="back-link" onClick={onBack}><ArrowLeft size={15} /> Back to device inventory</button>
-    <div className="detail-title-row"><div className="detail-identity"><DeviceGlyph kind={device.kind} /><div><div className="eyebrow">DEVICE RECORD / {device.id}</div><h1>{device.name}</h1><p>{device.owner} <i /> {device.email}</p></div></div><button className="button button-secondary" onClick={() => onRemoteCommand(device)}><MoreHorizontal size={16} /> Remote command <ChevronDown size={14} /></button></div>
-    <section className="device-status-strip"><div className="device-status-intro"><span className="mini-label">LIFECYCLE STATUS</span><span>Access decision and security posture are independent.</span><span className={`lifecycle-pill lifecycle-${device.lifecycleState.toLowerCase()}`}>{device.lifecycleState}</span></div><div className="state-pair"><div><span className="mini-label">APPROVAL</span><ApprovalPill state={device.approval} /></div><div><span className="mini-label">COMPLIANCE</span><CompliancePill state={device.compliance} /></div></div><div className="workspace-status"><span className="mini-label">WORKSPACE</span><strong><span className="workspace-indicator" />{device.workspace}</strong></div></section>
-    <section className="panel detail-panel"><div className="detail-tabs" role="tablist" aria-label="Device information"><button role="tab" aria-selected={tab === 'overview'} className={tab === 'overview' ? 'tab-active' : ''} onClick={() => setTab('overview')}>Overview</button><button role="tab" aria-selected={tab === 'activity'} className={tab === 'activity' ? 'tab-active' : ''} onClick={() => setTab('activity')}>Activity signals <span className="tab-count">7</span></button><button role="tab" aria-selected={tab === 'identifiers'} className={tab === 'identifiers' ? 'tab-active' : ''} onClick={() => setTab('identifiers')}>Identifiers</button></div>
-      {tab === 'activity' && <div className="activity-content"><div className="section-title-row"><div>      <h2>Recent device activity</h2><p>Each date comes from a separate system. A missing date does not automatically mean something is wrong.</p></div><span className="freshness-label"><span className="freshness-dot" />Signal timestamps</span></div><div className="signal-grid">{device.signals.map((signal, index) => {
+    <button className="back-link" title="Return to the full device list." onClick={onBack}><ArrowLeft size={15} /> Back to device inventory</button>
+    <div className="detail-title-row"><div className="detail-identity"><DeviceGlyph kind={device.kind} /><div><div className="eyebrow">DEVICE RECORD / {device.id}</div><h1>{device.name}</h1><p>{device.owner} <i /> {device.email}</p><p className="detail-purpose">Review this device’s status, activity, and identifiers.</p></div></div><button className="button button-secondary" title="Choose Lock, Retire, or Wipe for this device." onClick={() => onRemoteCommand(device)}><MoreHorizontal size={16} /> Remote command <ChevronDown size={14} /></button></div>
+    <section className="device-status-strip"><div className="device-status-intro"><span className="mini-label">DEVICE STATUS</span><span>Approval and security checks are separate.</span><span className={`lifecycle-pill lifecycle-${device.lifecycleState.toLowerCase()}`} title={lifecycleHelp(device.lifecycleState)}>{device.lifecycleState}</span></div><div className="state-pair"><div title="Whether the access request was approved."><span className="mini-label">APPROVAL</span><ApprovalPill state={device.approval} /></div><div title="Whether the device meets company security rules."><span className="mini-label">SECURITY</span><CompliancePill state={device.compliance} /></div></div><div className="workspace-status"><span className="mini-label">WORKSPACE</span><strong title="The workspace this device belongs to."><span className="workspace-indicator" />{device.workspace}</strong></div></section>
+    <section className="panel detail-panel"><div className="detail-tabs" role="tablist" aria-label="Device information"><button role="tab" aria-selected={tab === 'overview'} className={tab === 'overview' ? 'tab-active' : ''} title="See the device owner, setup, and workspace." onClick={() => setTab('overview')}>Overview</button><button role="tab" aria-selected={tab === 'activity'} className={tab === 'activity' ? 'tab-active' : ''} title="See the seven individual activity dates." onClick={() => setTab('activity')}>Activity dates <span className="tab-count">7</span></button><button role="tab" aria-selected={tab === 'identifiers'} className={tab === 'identifiers' ? 'tab-active' : ''} title="See the device IDs and masked serial number." onClick={() => setTab('identifiers')}>Identifiers</button></div>
+      {tab === 'activity' && <div className="activity-content"><div className="section-title-row"><div><h2>Recent device activity</h2><p>Each date comes from a separate system. A missing date does not automatically mean something is wrong.</p></div><span className="freshness-label" title="These dates come from separate device activity sources."><span className="freshness-dot" />Activity dates</span></div><div className="signal-grid">{device.signals.map((signal, index) => {
         const Icon = signal.icon
-        return <article className={`signal-card ${index === 6 ? 'signal-logout' : ''}`} key={signal.label}><div className="signal-card-head"><span className="signal-icon"><Icon size={16} /></span><span className="signal-index">0{index + 1}</span></div><h3>{signal.label}</h3><strong className={signal.value ? '' : 'signal-null'}>{signal.value ?? 'Not recorded'}</strong><div className="signal-source"><span>Source</span><span>{signal.source}</span></div>{signal.note && signal.value && <small className="signal-note">{signal.note}</small>}</article>
+        return <article className={`signal-card ${index === 6 ? 'signal-logout' : ''}`} key={signal.label} title={signal.note ? `${signal.source}: ${signal.note}` : `${friendlySignalTitle(signal.label)} reported by ${signal.source}.`}><div className="signal-card-head"><span className="signal-icon"><Icon size={16} /></span><span className="signal-index">0{index + 1}</span></div><h3>{friendlySignalTitle(signal.label)}</h3><strong className={signal.value ? '' : 'signal-null'}>{signal.value ?? 'Not recorded'}</strong><div className="signal-source"><span>Source</span><span>{signal.source}</span></div>{signal.note && signal.value && <small className="signal-note">{signal.note}</small>}</article>
       })}</div><div className="signal-disclaimer"><Shield size={15} /><span>Hardware inventory and remote management data are provided by Intune. A browser PWA cannot read physical MAC addresses or issue OS-level commands.</span></div></div>}
-      {tab === 'overview' && <div className="overview-content"><div className="section-title-row"><div><h2>Device overview</h2><p>Identity and enrollment details synchronized from the MDM provider.</p></div><span className="source-chip"><MonitorCog size={14} /> Microsoft Intune</span></div><div className="overview-grid"><InfoField label="Device record" value={device.id} /><InfoField label="Intune managed-device ID" value={device.intuneId} /><InfoField label="Assigned owner" value={device.owner} /><InfoField label="Platform" value={`${device.platform} ${device.version}`} /><InfoField label="Masked serial number" value={device.serial} /><InfoField label="Enrollment date" value={device.enrolled} /><InfoField label="Workspace" value={device.workspace} /><InfoField label="MDM source" value="Microsoft Intune" /></div></div>}
-      {tab === 'identifiers' && <div className="overview-content"><div className="section-title-row"><div><h2>Identifiers</h2><p>Sensitive identifiers are masked in the console.</p></div><span className="source-chip"><Fingerprint size={14} /> HMAC lookup enabled</span></div><div className="overview-grid"><InfoField label="Device UUID" value={device.id} /><InfoField label="Intune managed-device ID" value={device.intuneId} /><InfoField label="Serial number" value={device.serial} /><InfoField label="MAC address" value="Not collected by PWA" /></div><div className="signal-disclaimer"><LockKeyhole size={15} /><span>MAC and hardware identifiers are sourced from Intune telemetry and stored as protected lookup values where configured.</span></div></div>}
+      {tab === 'overview' && <div className="overview-content"><div className="section-title-row"><div><h2>Device overview</h2><p>Ownership and setup details reported by Microsoft Intune.</p></div><span className="source-chip"><MonitorCog size={14} /> Microsoft Intune</span></div><div className="overview-grid"><InfoField label="Device ID" value={device.id} /><InfoField label="Intune device ID" value={device.intuneId} /><InfoField label="Assigned owner" value={device.owner} /><InfoField label="Platform" value={`${device.platform} ${device.version}`} /><InfoField label="Serial number (masked)" value={device.serial} /><InfoField label="Enrollment date" value={device.enrolled} /><InfoField label="Workspace" value={device.workspace} /><InfoField label="Device manager" value="Microsoft Intune" /></div></div>}
+      {tab === 'identifiers' && <div className="overview-content"><div className="section-title-row"><div><h2>Identifiers</h2><p>Sensitive identifiers are masked in the console.</p></div><span className="source-chip" title="Device identifiers are protected when stored."><Fingerprint size={14} /> Protected identifiers</span></div><div className="overview-grid"><InfoField label="Device ID" value={device.id} /><InfoField label="Intune device ID" value={device.intuneId} /><InfoField label="Serial number" value={device.serial} /><InfoField label="Physical MAC address" value="Not available in this portal" /></div><div className="signal-disclaimer"><LockKeyhole size={15} /><span>Some device details come from Microsoft Intune. This portal can’t read a device’s physical MAC address or directly control its operating system.</span></div></div>}
     </section>
   </>
 }
@@ -1823,27 +1881,27 @@ function AuditPage({ events, isDemoMode, onExport, exporting, initialSearch, sea
   }
 
   return <>
-    <PageHeading eyebrow="MODULE 10 / ACCOUNTABILITY" title="Audit & Evidence" description="A clear history of important device and access decisions.">
-      <button className="button bg-blue-600 hover:bg-blue-700 text-white fill-white stroke-white" style={{ color: '#ffffff' }} onClick={() => onExport('csv')} disabled={exporting}>
+    <PageHeading eyebrow="MODULE 10 / ACCOUNTABILITY" title="Audit & Evidence" description="Review past decisions and export a report for follow-up.">
+      <button className="button bg-blue-600 hover:bg-blue-700 text-white fill-white stroke-white" title="Download the activity history as a CSV spreadsheet." style={{ color: '#ffffff' }} onClick={() => onExport('csv')} disabled={exporting}>
         <Download size={16} style={{ color: '#ffffff', stroke: '#ffffff' }} />{exporting ? 'Preparing file…' : 'Export to Excel / CSV'}
       </button>
-      <button className="button button-secondary text-slate-700 stroke-slate-700" style={{ color: '#334155' }} onClick={() => onExport('json')} disabled={exporting}>
+      <button className="button button-secondary text-slate-700 stroke-slate-700" title="Download the activity history as a JSON file." style={{ color: '#334155' }} onClick={() => onExport('json')} disabled={exporting}>
         <Download size={16} style={{ color: '#334155', stroke: '#334155' }} />JSON
       </button>
     </PageHeading>
     <section className="executive-summary-grid audit-summary">
-      <article><span className="summary-icon summary-blue"><Activity size={18} /></span><span>Events in this view</span><strong>{events.length}</strong><small>{isDemoMode ? 'Representative sample' : 'Current workspace'}</small></article>
-      <article><span className="summary-icon summary-green"><CheckCircle2 size={18} /></span><span>Completed successfully</span><strong>{events.filter((event) => event.outcome === 'Success' || event.outcome === 'SUCCESS').length}</strong><small>Recorded governance actions</small></article>
-      <article><span className="summary-icon summary-amber"><AlertTriangle size={18} /></span><span>Needs attention</span><strong>{events.filter((event) => event.outcome === 'Denied' || event.outcome === 'Review').length}</strong><small>Review outcomes and exceptions</small></article>
+      <article title="Number of activity records currently shown for this workspace."><span className="summary-icon summary-blue"><Activity size={18} /></span><span>Events in this view</span><strong>{events.length}</strong><small>{isDemoMode ? 'Representative sample' : 'Current workspace'}</small></article>
+      <article title="Actions recorded as completed successfully."><span className="summary-icon summary-green"><CheckCircle2 size={18} /></span><span>Completed successfully</span><strong>{events.filter((event) => event.outcome === 'Success' || event.outcome === 'SUCCESS').length}</strong><small>Recorded governance actions</small></article>
+      <article title="Events that were blocked or still need review."><span className="summary-icon summary-amber"><AlertTriangle size={18} /></span><span>Needs attention</span><strong>{events.filter((event) => event.outcome === 'Denied' || event.outcome === 'Review').length}</strong><small>Review outcomes and exceptions</small></article>
     </section>
     <section className="executive-list-panel">
-      <div className="executive-section-heading"><div><span className="executive-kicker">RECENT ACTIVITY</span><h2>Security event history</h2><p>Every decision includes a reason and a reference ID.</p></div><span className="source-chip"><LockKeyhole size={14} />{isDemoMode ? 'Sample history' : 'Audit records'}</span></div>
-      <div className="table-toolbar audit-toolbar"><label className="search-field"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search people, events, or devices" /></label><label className="filter-select"><ListFilter size={15} /><select value={outcome} onChange={(event) => setOutcome(event.target.value)} aria-label="Filter by outcome"><option>All outcomes</option><option>Success</option><option>Denied</option><option>Review</option></select><ChevronDown size={14} /></label></div>
+      <div className="executive-section-heading"><div><span className="executive-kicker">RECENT ACTIVITY</span><h2>Security event history</h2><p>Review the action, its reason, and who recorded it.</p></div><span className="source-chip" title={isDemoMode ? 'Sample events and local demo actions; not an official audit record.' : 'Recorded events for the selected workspace.'}><LockKeyhole size={14} />{isDemoMode ? 'Sample history' : 'Activity history'}</span></div>
+      <div className="table-toolbar audit-toolbar"><label className="search-field" title="Find activity by person, action, device, or reference ID."><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search people, events, or devices" /></label><label className="filter-select" title="Show activity with the selected result."><ListFilter size={15} /><select value={outcome} onChange={(event) => setOutcome(event.target.value)} aria-label="Filter by outcome"><option>All outcomes</option><option>Success</option><option>Denied</option><option>Review</option></select><ChevronDown size={14} /></label></div>
       <div className="audit-event-list">{filtered.map((event) => <article className="audit-event-card" key={event.eventId}>
         <span className={`audit-event-icon ${event.outcome === 'Success' || event.outcome === 'SUCCESS' ? 'audit-event-success' : 'audit-event-attention'}`}>
           {event.outcome === 'Success' || event.outcome === 'SUCCESS' ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}
         </span>
-        <div className="audit-event-main"><div><strong>{event.action.replace(/_/g, ' ')}</strong><StatusPill tone={event.outcome.toLowerCase() === 'success' ? 'success' : event.outcome.toLowerCase() as 'denied' | 'review'}>{event.outcome}</StatusPill></div>
+        <div className="audit-event-main"><div><strong title={event.action}>{friendlyAuditAction(event.action)}</strong><StatusPill tone={event.outcome.toLowerCase() === 'success' ? 'success' : event.outcome.toLowerCase() as 'denied' | 'review'}>{event.outcome}</StatusPill></div>
           <p>{event.reason}</p><small>{event.actor} · {event.role} · {event.date} at {event.time}{event.scope ? ` · ${event.scope}` : ''}</small>
         </div>
         <div className="audit-event-target"><span>Related to</span><strong>{event.target}</strong><button className="correlation-copy" title="Copy reference ID" onClick={() => void copyCorrelation(event.correlationId)}><span>{copied === event.correlationId ? 'Copied' : event.correlationId}</span>{copied === event.correlationId ? <Check size={14} /> : <Copy size={14} />}</button></div>
@@ -1868,7 +1926,7 @@ function ReviewDialog({ device, isDemoMode, onClose, onOpenDevice, onSubmit }: {
   const canSubmit = justification.trim().length >= 12
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!canSubmit) { setError('Enter at least 12 characters to provide an actionable audit reason.'); return }
+    if (!canSubmit) { setError('Enter a reason with at least 12 characters.'); return }
     setIsSubmitting(true)
     setError('')
     try {
@@ -1882,12 +1940,12 @@ function ReviewDialog({ device, isDemoMode, onClose, onOpenDevice, onSubmit }: {
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-title">
     <div className="dialog-header"><div><span className="eyebrow">DEVICE REVIEW / {device.id}</span><h2 id="review-title">Review access request</h2></div><button className="icon-button" aria-label="Close review" onClick={onClose}><X size={18} /></button></div>
     <div className="review-device"><DeviceGlyph kind={device.kind} /><div><strong>{device.name}</strong><span>{device.owner} <i /> {device.workspace}</span></div><button className="text-link" type="button" onClick={() => void onOpenDevice(device)}>Details <ArrowUpRight size={13} /></button></div>
-    <div className="evidence-grid"><div><span>Intune managed ID</span><strong className="mono-id">{device.intuneId}</strong></div><div><span>Masked serial</span><strong>{device.serial}</strong></div><div><span>Approval state</span><ApprovalPill state={device.approval} /></div><div><span>Compliance posture</span><CompliancePill state={device.compliance} /></div></div>
+    <div className="evidence-grid"><div title="Device identifier from Microsoft Intune."><span>Intune device ID</span><strong className="mono-id">{device.intuneId}</strong></div><div><span>Serial number (masked)</span><strong>{device.serial}</strong></div><div><span>Approval status</span><ApprovalPill state={device.approval} /></div><div><span>Security status</span><CompliancePill state={device.compliance} /></div></div>
     <div className="evidence-note"><MonitorCog size={15} /><span>{isDemoMode ? 'Demo review: this action changes sample data locally and is not an authoritative approval.' : 'Review the device identity and posture before making a decision.'}</span></div>
     <form onSubmit={submit}>
       <fieldset className="decision-fieldset"><legend>Decision</legend><div className="decision-options"><label className={`decision-option ${decision === 'Approved' ? 'decision-selected approve-selected' : ''}`}><input type="radio" name="decision" value="Approved" checked={decision === 'Approved'} onChange={() => setDecision('Approved')} /><span className="decision-icon"><CheckCircle2 size={17} /></span><span><strong>Approve</strong><small>Mark device approved</small></span></label><label className={`decision-option ${decision === 'Rejected' ? 'decision-selected reject-selected' : ''}`}><input type="radio" name="decision" value="Rejected" checked={decision === 'Rejected'} onChange={() => setDecision('Rejected')} /><span className="decision-icon"><X size={17} /></span><span><strong>Reject</strong><small>Deny this registration</small></span></label></div></fieldset>
-      <label className="justification-label" htmlFor="justification">Audit justification <span>Required</span></label><textarea id="justification" value={justification} onChange={(event) => { setJustification(event.target.value); setError('') }} placeholder="Describe the evidence and reason for this decision…" rows={3} maxLength={500} required /><div className="textarea-meta"><span>{error || 'This reason will be stored in the append-only audit log.'}</span><span>{justification.length}/500</span></div>
-      <div className="dialog-footer"><span><LockKeyhole size={14} /> Decision is auditable</span><button type="button" className="button button-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button><button type="submit" className={`button ${decision === 'Rejected' ? 'button-danger' : 'button-primary'}`} disabled={!canSubmit || isSubmitting}>{isSubmitting ? 'Submitting…' : decision === 'Approved' ? 'Approve device' : 'Reject device'}</button></div>
+      <label className="justification-label" htmlFor="justification">Reason for decision <span>Required</span></label><textarea id="justification" value={justification} onChange={(event) => { setJustification(event.target.value); setError('') }} placeholder="Briefly explain why you’re approving or rejecting this request…" rows={3} maxLength={500} required /><div className="textarea-meta"><span>{error || 'This reason is added to the activity history.'}</span><span>{justification.length}/500</span></div>
+      <div className="dialog-footer"><span><LockKeyhole size={14} /> Decision is recorded</span><button type="button" className="button button-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button><button type="submit" className={`button ${decision === 'Rejected' ? 'button-danger' : 'button-primary'}`} disabled={!canSubmit || isSubmitting}>{isSubmitting ? 'Submitting…' : decision === 'Approved' ? 'Approve device' : 'Reject device'}</button></div>
     </form>
   </section></div>
 }
@@ -1911,12 +1969,12 @@ function RemoteCommandDialog({
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const canSubmit = reason.trim().length > 0 && (command !== 'WIPE' || wipeConfirmed)
-  const commandName = command === 'LOCK' ? 'Lock Device' : command === 'RETIRE' ? 'Retire Device' : 'Remote Wipe'
+  const commandName = command === 'LOCK' ? 'Lock access' : command === 'RETIRE' ? 'Retire device' : 'Record wipe request'
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!canSubmit) {
-      setError(command === 'WIPE' && !wipeConfirmed ? 'Confirm the remote wipe before submitting.' : 'A reason is required.')
+      setError(command === 'WIPE' && !wipeConfirmed ? 'Confirm the wipe request before submitting.' : 'Enter a reason for this action.')
       return
     }
     setIsSubmitting(true)
@@ -1932,20 +1990,20 @@ function RemoteCommandDialog({
 
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSubmitting) onClose() }}>
     <section className="review-dialog remote-command-dialog" role="dialog" aria-modal="true" aria-labelledby="remote-command-title">
-      <div className="dialog-header"><div><span className="eyebrow">REMOTE DEVICE MANAGEMENT / {device.id}</span><h2 id="remote-command-title">Confirm remote command</h2></div><button className="icon-button" aria-label="Close remote command" onClick={onClose} disabled={isSubmitting}><X size={18} /></button></div>
+      <div className="dialog-header"><div><span className="eyebrow">DEVICE ACTION / {device.id}</span><h2 id="remote-command-title">Confirm device action</h2></div><button className="icon-button" aria-label="Close device action" title="Close without making a change." onClick={onClose} disabled={isSubmitting}><X size={18} /></button></div>
       <div className="review-device"><DeviceGlyph kind={device.kind} /><div><strong>{device.name}</strong><span>{device.owner} <i /> {device.workspace}</span></div></div>
       <div className="evidence-note"><MonitorCog size={15} /><span>{isDemoMode ? 'Demo action: only the sample device state changes; no device command is sent.' : 'This request is recorded by the governance service. It does not send an operating-system command directly from the browser.'}</span></div>
       <form onSubmit={submit}>
-        <label className="access-field remote-command-select"><span>Command</span><select value={command} onChange={(event) => { setCommand(event.target.value as RemoteCommand); setError(''); setWipeConfirmed(false) }} disabled={isSubmitting}>
-          <option value="LOCK">Lock Device — set lifecycle to Suspended</option>
-          <option value="RETIRE">Retire Device — set lifecycle to Retired</option>
-          <option value="WIPE">Remote Wipe — set lifecycle to Wipe Issued</option>
+        <label className="access-field remote-command-select" title="Choose the action to record for this device."><span>Action</span><select value={command} onChange={(event) => { setCommand(event.target.value as RemoteCommand); setError(''); setWipeConfirmed(false) }} disabled={isSubmitting}>
+          <option value="LOCK">Lock access — temporarily block this device</option>
+          <option value="RETIRE">Retire device — remove it from active use</option>
+          <option value="WIPE">Record wipe request — no physical erase in this build</option>
         </select></label>
-        {command === 'WIPE' && <label className="wipe-confirm"><input type="checkbox" checked={wipeConfirmed} onChange={(event) => { setWipeConfirmed(event.target.checked); setError('') }} /><span>I confirm issuing a remote wipe for this device.</span></label>}
-        <label className="justification-label remote-reason-label" htmlFor="remote-command-reason">Command reason <span>Required</span></label>
-        <textarea id="remote-command-reason" value={reason} onChange={(event) => { setReason(event.target.value); setError('') }} placeholder="Explain why this command is necessary…" rows={3} maxLength={500} required disabled={isSubmitting} />
-        <div className="textarea-meta"><span>{error || 'The reason and command outcome are recorded in the audit log.'}</span><span>{reason.length}/500</span></div>
-        <div className="dialog-footer"><span><LockKeyhole size={14} /> Command is auditable</span><button type="button" className="button button-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button><button type="submit" className={`button ${command === 'WIPE' ? 'button-danger' : 'button-primary'}`} disabled={!canSubmit || isSubmitting}>{isSubmitting ? 'Submitting…' : commandName}</button></div>
+        {command === 'WIPE' && <label className="wipe-confirm"><input type="checkbox" checked={wipeConfirmed} onChange={(event) => { setWipeConfirmed(event.target.checked); setError('') }} /><span>I understand this records a wipe request; it does not erase the physical device in this build.</span></label>}
+        <label className="justification-label remote-reason-label" htmlFor="remote-command-reason">Why is this action needed? <span>Required</span></label>
+        <textarea id="remote-command-reason" value={reason} onChange={(event) => { setReason(event.target.value); setError('') }} placeholder="Briefly explain why this action is needed…" rows={3} maxLength={500} required disabled={isSubmitting} />
+        <div className="textarea-meta"><span>{error || 'Your reason and the action result are added to Activity History.'}</span><span>{reason.length}/500</span></div>
+        <div className="dialog-footer"><span><LockKeyhole size={14} /> Action is recorded</span><button type="button" className="button button-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button><button type="submit" className={`button ${command === 'WIPE' ? 'button-danger' : 'button-primary'}`} disabled={!canSubmit || isSubmitting}>{isSubmitting ? 'Submitting…' : commandName}</button></div>
       </form>
     </section>
   </div>
