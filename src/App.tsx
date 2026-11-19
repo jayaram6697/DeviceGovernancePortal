@@ -38,9 +38,22 @@ import type { AccessEvaluationResponse, ApiAuditRecord, ApiDeviceRecord, RemoteC
 
 type ApprovalState = 'Pending' | 'Approved' | 'Rejected' | 'Suspended' | 'Revoked'
 type ComplianceState = 'Compliant' | 'Non-compliant' | 'Stale'
-type Screen = 'identity' | 'scope' | 'approvals' | 'devices' | 'intune' | 'compliance' | 'access' | 'signals' | 'commands' | 'audit' | 'detail'
+type Screen = 'dashboard' | 'devices' | 'approvals' | 'compliance' | 'applications' | 'intune' | 'signals' | 'audit' | 'alerts' | 'reports' | 'settings' | 'identity' | 'scope' | 'access' | 'commands' | 'detail'
 type DeviceKind = 'Laptop' | 'Phone' | 'Tablet'
 type DemoWorkspace = 'Engineering' | 'Operations UAE' | 'Field Logistics'
+type ManagedApplication = {
+  id: string
+  name: string
+  origin: string
+  clientId: string
+  workspaces: string[]
+}
+
+const sampleApplications: ManagedApplication[] = [
+  { id: 'APP-001', name: 'GateLogiq Workspace', origin: 'https://workspace.example.com', clientId: 'com.northstar.workspace', workspaces: ['Engineering', 'Production'] },
+  { id: 'APP-002', name: 'GateLogiq Support', origin: 'https://support.example.com', clientId: 'com.northstar.support', workspaces: ['Operations UAE'] },
+  { id: 'APP-003', name: 'GateLogiq Analytics', origin: 'https://analytics.example.com', clientId: 'com.northstar.analytics', workspaces: ['Engineering', 'Corporate'] },
+]
 
 type ActivitySignal = {
   label: string
@@ -470,20 +483,43 @@ function downloadDemoAuditExport(events: AuditEvent[], format: 'csv' | 'json') {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
 }
 
-const navSections: { title: string; links: { label: string; screen: Screen; icon: LucideIcon; badge?: string }[] }[] = [
+function downloadDeviceInventoryExport(devices: Device[]) {
+  const columns = ['Device ID', 'Device name', 'Owner', 'Email', 'Workspace', 'Platform', 'Approval', 'Compliance', 'Lifecycle']
+  const field = (value: string) => {
+    const safeValue = /^[\t\r ]*[=+\-@]/.test(value) ? `'${value}` : value
+    return `"${safeValue.replace(/"/g, '""')}"`
+  }
+  const rows = devices.map((device) => [
+    device.id, device.name, device.owner, device.email, device.workspace, device.platform,
+    device.approval, device.compliance, device.lifecycleState,
+  ])
+  const content = [columns, ...rows].map((row) => row.map(field).join(',')).join('\r\n')
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = 'device_governance_inventory.csv'
+  document.body.append(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+}
+
+const navSections: { title: string; links: { label: string; screen: Screen; icon: LucideIcon; badge?: 'pending' | 'alerts' }[] }[] = [
   {
-    title: 'Modules 1–10',
+    title: 'Administration',
     links: [
-      { label: '1. Authentication & Roles', screen: 'identity', icon: Fingerprint },
-      { label: '2. Workspace & Tenants', screen: 'scope', icon: MonitorCog },
-      { label: '3. Device Registry', screen: 'devices', icon: Smartphone },
-      { label: '4. Approval Queue', screen: 'approvals', icon: CheckCircle2, badge: 'pending' },
-      { label: '5. Intune Sync', screen: 'intune', icon: RefreshCw },
-      { label: '6. Compliance Posture', screen: 'compliance', icon: ShieldAlert },
-      { label: '7. PWA Gatekeeper', screen: 'access', icon: ShieldCheck },
-      { label: '8. Activity Signals', screen: 'signals', icon: Activity },
-      { label: '9. Remote Commands', screen: 'commands', icon: LockKeyhole },
-      { label: '10. Audit & Evidence', screen: 'audit', icon: FileClock },
+      { label: 'Dashboard', screen: 'dashboard', icon: ShieldCheck },
+      { label: 'Devices', screen: 'devices', icon: Smartphone },
+      { label: 'Approvals', screen: 'approvals', icon: CheckCircle2, badge: 'pending' },
+      { label: 'Compliance', screen: 'compliance', icon: ShieldAlert },
+      { label: 'Applications', screen: 'applications', icon: Package },
+      { label: 'MDM Integrations', screen: 'intune', icon: RefreshCw },
+      { label: 'Tracking', screen: 'signals', icon: Activity },
+      { label: 'Audit', screen: 'audit', icon: FileClock },
+      { label: 'Alerts', screen: 'alerts', icon: Bell, badge: 'alerts' },
+      { label: 'Reports', screen: 'reports', icon: Download },
+      { label: 'Settings', screen: 'settings', icon: MonitorCog },
     ],
   },
 ]
@@ -588,8 +624,9 @@ function App() {
   const demoWorkspaceRef = useRef<DemoWorkspace>('Engineering')
   demoWorkspaceRef.current = demoWorkspace
   const [demoDataScope, setDemoDataScope] = useState<{ tenant: string; workspace: DemoWorkspace } | null>(null)
-  const [screen, setScreen] = useState<Screen>('approvals')
+  const [screen, setScreen] = useState<Screen>('dashboard')
   const [devices, setDevices] = useState<Device[]>([])
+  const [applications, setApplications] = useState<ManagedApplication[]>(sampleApplications)
   const [audit, setAudit] = useState<AuditEvent[]>([])
   const [selectedDeviceId, setSelectedDeviceId] = useState('')
   const [reviewDeviceId, setReviewDeviceId] = useState<string | null>(null)
@@ -758,16 +795,21 @@ function App() {
   const syncStatusClass = isDemoMode ? 'sync-mini-demo' : isMdmSyncFresh ? 'sync-mini-current' : ''
   const visibleWorkspace = isDemoMode ? demoWorkspace : workspace
   const screenTitle: Record<Screen, string> = {
-    identity: 'Authentication & Roles',
-    scope: 'Workspace & Tenants',
-    approvals: 'Approval Queue',
-    devices: 'Device Registry',
-    intune: 'Intune Sync',
-    compliance: 'Compliance Posture',
-    access: 'PWA Gatekeeper',
-    signals: 'Activity Signals',
-    commands: 'Remote Commands',
-    audit: 'Audit & Evidence',
+    dashboard: 'Dashboard',
+    devices: 'Devices',
+    approvals: 'Approvals',
+    compliance: 'Compliance',
+    applications: 'Applications',
+    intune: 'MDM Integrations',
+    signals: 'Tracking',
+    audit: 'Audit',
+    alerts: 'Alerts',
+    reports: 'Reports',
+    settings: 'Settings',
+    identity: 'User and Role Administration',
+    scope: 'Tenant and Workspace Management',
+    access: 'PWA Access Control',
+    commands: 'Remote Command Console',
     detail: 'Device details',
   }
   const searchTerm = searchQuery.trim().toLowerCase()
@@ -1116,7 +1158,8 @@ function App() {
           {navSections.map((section) => <div className="nav-group" key={section.title}>
             <div className="nav-heading">{section.title}</div>
             {section.links.map(({ label, screen: target, icon: Icon, badge }) => {
-              const isActive = target === screen || (screen === 'detail' && target === 'devices')
+              const isSettingsSubscreen = screen === 'identity' || screen === 'scope' || screen === 'access' || screen === 'commands'
+              const isActive = target === screen || (screen === 'detail' && target === 'devices') || (target === 'settings' && isSettingsSubscreen)
               return <button
                 className={`nav-link ${isActive ? 'nav-active' : ''}`}
                 key={label}
@@ -1129,8 +1172,9 @@ function App() {
                   className={isActive ? 'text-white' : 'text-slate-500'}
                   style={isActive ? { color: '#ffffff', stroke: '#ffffff' } : undefined}
                 />
-                <span>{label}</span>
-                {badge && <span className="nav-badge">{pendingCount}</span>}
+                  <span>{label}</span>
+                  {badge && (badge === 'pending' ? pendingCount : notifications.length) > 0
+                    && <span className="nav-badge">{badge === 'pending' ? pendingCount : notifications.length}</span>}
               </button>
             })}
           </div>)}
@@ -1139,8 +1183,8 @@ function App() {
           <div className={`sync-mini ${syncStatusClass}`} role="status" title={isDemoMode ? 'Sample timestamps only; there is no live Intune connection.' : isMdmSyncFresh ? 'The latest live device sync is recent.' : 'The latest live device sync is more than 60 minutes old.'}>
             <span className="sync-mini-dot" aria-hidden="true" />
             <span>{isDemoMode
-              ? 'Intune Sync: Simulated (Demo Data)'
-              : `Intune Sync: ${isMdmSyncFresh ? 'Healthy' : 'Delayed'} (${formatCompactRelativeTime(latestMdmSyncAt) ?? '—'})`}</span>
+              ? 'MDM Sync: Simulated (Demo Data)'
+              : `MDM Sync: ${isMdmSyncFresh ? 'Healthy' : 'Delayed'} (${formatCompactRelativeTime(latestMdmSyncAt) ?? '—'})`}</span>
           </div>
           <div className="profile-menu-wrapper" ref={profileMenuRef}>
             <button type="button" className="profile-row" aria-label="Open user profile details" aria-haspopup="dialog" aria-expanded={profileMenuOpen} aria-controls="profile-details" onClick={() => setProfileMenuOpen((open) => !open)}>
@@ -1229,22 +1273,27 @@ function App() {
           {apiError && <div className="friendly-error" role="alert"><AlertTriangle size={17} /><span>{apiError}</span><button type="button" aria-label="Dismiss message" onClick={() => setApiError('')}><X size={15} /></button></div>}
           {isLoading && <div className="loading-state" role="status">Loading devices in {visibleWorkspace}…</div>}
 
+          {screen === 'dashboard' && <DashboardPage devices={devices} audit={audit} alertCount={notifications.length} tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} onNavigate={navigate} />}
           {screen === 'identity' && <IdentityRolesPage email={userEmail} tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} />}
           {screen === 'scope' && <WorkspaceTenantsPage tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} demoWorkspace={demoWorkspace} onTenantChange={switchTenant} onWorkspaceChange={(next) => isDemoMode ? switchDemoWorkspace(next as DemoWorkspace) : setWorkspace(next)} />}
           {screen === 'approvals' && <ApprovalsPage devices={devices} workspace={visibleWorkspace} isDemoMode={isDemoMode} onReview={(device) => setReviewDeviceId(device.id)} />}
           {screen === 'devices' && <DevicesPage devices={devices} isDemoMode={isDemoMode} onOpenDevice={openDevice} />}
           {screen === 'intune' && <IntunePage devices={devices} latestSyncAt={latestMdmSyncAt} syncIsFresh={isMdmSyncFresh} isSyncing={isSyncing} isDemoMode={isDemoMode} onSync={() => void runIntuneSync()} />}
           {screen === 'compliance' && <CompliancePage devices={devices} isDemoMode={isDemoMode} onOpenDevice={openDevice} />}
+          {screen === 'applications' && <ApplicationsPage applications={applications} isDemoMode={isDemoMode} onAdd={(application) => setApplications((current) => [application, ...current])} onOpenAccessTest={() => navigate('access')} />}
           {screen === 'detail' && detailLoading && <div className="loading-state" role="status">Loading device details…</div>}
           {screen === 'detail' && !detailLoading && selectedDevice && <DeviceDetail device={selectedDevice} onBack={() => navigate('devices')} onRemoteCommand={openRemoteCommand} />}
           {screen === 'detail' && !detailLoading && !selectedDevice && <div className="executive-empty detail-empty" role="status">
             <p>This device isn’t available in the selected workspace.</p>
-            <button type="button" className="button button-secondary" onClick={() => navigate('devices')}>Back to Device Registry</button>
+            <button type="button" className="button button-secondary" onClick={() => navigate('devices')}>Back to Devices</button>
           </div>}
           {screen === 'audit' && <AuditPage events={audit} isDemoMode={isDemoMode} onExport={exportAudit} exporting={exportingAudit} initialSearch={auditSearchRequest.query} searchRequestVersion={auditSearchRequest.version} />}
-          {screen === 'access' && <PwaAccessPage devices={devices} isDemoMode={isDemoMode} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} onEvaluate={testPwaAccess} />}
+          {screen === 'access' && <PwaAccessPage devices={devices} applications={applications} isDemoMode={isDemoMode} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} onEvaluate={testPwaAccess} />}
           {screen === 'signals' && <SignalsPage devices={devices} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} />}
           {screen === 'commands' && <RemoteCommandsPage devices={devices} isDemoMode={isDemoMode} onRemoteCommand={openRemoteCommand} />}
+          {screen === 'alerts' && <AlertsPage alerts={notifications} hasUnread={hasUnreadNotifications} onMarkRead={() => setHasUnreadNotifications(false)} onOpen={openNotification} />}
+          {screen === 'reports' && <ReportsPage devices={devices} audit={audit} isDemoMode={isDemoMode} exportingAudit={exportingAudit} onExportAudit={exportAudit} onExportInventory={() => downloadDeviceInventoryExport(devices)} />}
+          {screen === 'settings' && <SettingsPage onNavigate={navigate} />}
         </main>
         <footer className="page-footer"><span>GateLogiq Device Governance</span><span>Tenant scope: {tenant} <i /> Workspace: {visibleWorkspace}</span></footer>
       </div>
@@ -1335,7 +1384,7 @@ function App() {
           <div className="help-dialog-body">
             <section className="help-dialog-section">
               <h3>Start here</h3>
-              <p>Choose a tenant and workspace from the left sidebar. This filters the devices, access requests, and activity shown across the portal. The number beside Approval Queue shows requests waiting for review.</p>
+              <p>Choose a tenant and workspace from the left sidebar. This filters the devices, access requests, and activity shown across the portal. The number beside Approvals shows requests waiting for review.</p>
             </section>
             <section className="help-dialog-section">
               <h3>What the colors mean</h3>
@@ -1349,10 +1398,10 @@ function App() {
             <section className="help-dialog-section">
               <h3>Common tasks</h3>
               <ul>
-                <li>In Approval Queue, review a request, choose Approve or Reject, and enter a reason. The decision is added to Audit &amp; Evidence.</li>
-                <li>Use Device Registry to find a device and open its details. Compliance Posture shows which devices meet company security rules.</li>
-                <li>PWA Gatekeeper checks whether a device can open a company app. Lock, Retire, and Wipe require a reason and confirmation.</li>
-                <li>Review recent activity in Activity Signals. Audit &amp; Evidence lets you search activity and export a report.</li>
+                <li>In Approvals, review a request, choose Approve or Reject, and enter a reason. The decision is added to Audit.</li>
+                <li>Use Devices to find a device and open its details. Compliance shows which devices meet company security rules.</li>
+                <li>Use Applications to review registered PWAs. PWA access checks and remote commands are available from the related tools.</li>
+                <li>Review recent activity in Tracking. Audit lets you search activity and export a report.</li>
               </ul>
             </section>
             <section className="help-dialog-section help-dialog-mode">
@@ -1364,7 +1413,7 @@ function App() {
                   : apiError
                     ? 'Live records could not be loaded. Check the status message at the top of the page.'
                     : 'Your device and activity records are loaded from the connected service.'}</p>
-              <p>Intune sync is a demo feature in this build. It updates sample timestamps and does not connect to Microsoft Intune.</p>
+              <p>MDM sync is a demo feature in this build. It updates sample timestamps and does not connect to Microsoft Intune.</p>
             </section>
           </div>
         </section>
@@ -1377,18 +1426,313 @@ function App() {
   )
 }
 
+const moduleGuidance: Record<string, { purpose: string; why: string }> = {
+  Dashboard: {
+    purpose: 'Summarizes device health, approvals, compliance, and alerts for the selected tenant and workspace.',
+    why: 'Administrators can spot urgent work quickly and see where to go next.',
+  },
+  Devices: {
+    purpose: 'Finds devices and shows their owners, approval, compliance, lifecycle, and activity details.',
+    why: 'A reliable inventory helps administrators make informed access and support decisions.',
+  },
+  'Device Inventory': {
+    purpose: 'Finds devices and shows their owners, approval, compliance, lifecycle, and activity details.',
+    why: 'A reliable inventory helps administrators make informed access and support decisions.',
+  },
+  Approvals: {
+    purpose: 'Reviews device requests and records an approve or reject decision with a reason.',
+    why: 'Only reviewed devices should be allowed to reach protected company applications.',
+  },
+  'Pending Approval Queue': {
+    purpose: 'Reviews device requests and records an approve or reject decision with a reason.',
+    why: 'Only reviewed devices should be allowed to reach protected company applications.',
+  },
+  Compliance: {
+    purpose: 'Shows which devices meet security checks and which need attention or a fresh sync.',
+    why: 'Access decisions should use current device-security information, not guesswork.',
+  },
+  Applications: {
+    purpose: 'Lists PWA names, origins, client IDs, and the workspaces allowed to use them.',
+    why: 'The platform needs to know which application is being protected before it can check access.',
+  },
+  'MDM Integrations': {
+    purpose: 'Shows device synchronization health and provides the available inventory refresh action.',
+    why: 'Current MDM data helps keep device inventory and compliance decisions accurate.',
+  },
+  Tracking: {
+    purpose: 'Shows separate device check-in, sign-in, application-activity, and API-activity signals.',
+    why: 'An MDM check-in is not the same as a person using an application; separate signals avoid confusion.',
+  },
+  'Device Tracking': {
+    purpose: 'Shows separate device check-in, sign-in, application-activity, and API-activity signals.',
+    why: 'An MDM check-in is not the same as a person using an application; separate signals avoid confusion.',
+  },
+  Audit: {
+    purpose: 'Searches recorded administrative and access events and exports audit evidence.',
+    why: 'A clear history helps teams investigate issues and explain who did what and when.',
+  },
+  'Security/Audit Explorer': {
+    purpose: 'Searches recorded administrative and access events and exports audit evidence.',
+    why: 'A clear history helps teams investigate issues and explain who did what and when.',
+  },
+  Alerts: {
+    purpose: 'Collects approval, compliance, synchronization, and security signals that may need review.',
+    why: 'Timely follow-up can reduce access risk and prevent missed device issues.',
+  },
+  Reports: {
+    purpose: 'Exports the selected workspace’s device inventory and audit records for review.',
+    why: 'Consistent evidence makes reviews and operational handoffs easier.',
+  },
+  Settings: {
+    purpose: 'Provides shortcuts to tenant, user, integration, and governance controls.',
+    why: 'Keeping administration tasks in one place makes the portal easier to navigate.',
+  },
+  'User and Role Administration': {
+    purpose: 'Shows the signed-in administrator and a plain-language summary of permissions.',
+    why: 'Administrators should understand which actions their role is responsible for.',
+  },
+  'Tenant and Workspace Management': {
+    purpose: 'Selects the organization and workspace whose devices and activity are being viewed.',
+    why: 'Correct scope helps prevent mixing records from different customer workspaces.',
+  },
+  'PWA Access Control': {
+    purpose: 'Checks whether a device meets access requirements for a selected application.',
+    why: 'A decision can block unapproved, non-compliant, or inactive devices before access.',
+  },
+  'Remote Command Console': {
+    purpose: 'Requests a supported lock, retire, or wipe action and requires an administrator reason.',
+    why: 'Documented device actions help teams respond to lost, retired, or at-risk devices.',
+  },
+}
+
 function PageHeading({ eyebrow, title, description, children }: { eyebrow: string; title: string; description: string; children?: React.ReactNode }) {
-  return <div className="page-heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div><div className="heading-actions">{children}</div></div>
+  const guidance = moduleGuidance[title]
+  return <>
+    <div className="page-heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div><div className="heading-actions">{children}</div></div>
+    {guidance && <section className="module-guidance" aria-label={`${title} module guide`}>
+      <div><span>What this module does</span><p>{guidance.purpose}</p></div>
+      <div><span>Why it matters</span><p>{guidance.why}</p></div>
+    </section>}
+  </>
+}
+
+function DashboardPage({
+  devices,
+  audit,
+  alertCount,
+  tenant,
+  workspace,
+  isDemoMode,
+  onNavigate,
+}: {
+  devices: Device[]
+  audit: AuditEvent[]
+  alertCount: number
+  tenant: string
+  workspace: string
+  isDemoMode: boolean
+  onNavigate: (screen: Screen) => void
+}) {
+  const pendingCount = devices.filter((device) => device.approval === 'Pending').length
+  const attentionCount = devices.filter((device) => device.compliance !== 'Compliant').length
+  const activeCount = devices.filter((device) => device.lifecycleState === 'Active').length
+  return <>
+    <PageHeading eyebrow="GOVERNANCE OVERVIEW" title="Dashboard" description={`A clear overview of ${tenant} · ${workspace}.`}>
+      <button type="button" className="button button-primary" onClick={() => onNavigate('devices')}><Smartphone size={15} /> View devices</button>
+    </PageHeading>
+    {isDemoMode && <div className="manager-demo-note"><MonitorCog size={16} /><span>Sample workspace data is shown. Demo changes are not sent to a live MDM provider.</span></div>}
+    <div className="manager-metric-grid">
+      <article className="manager-metric"><span className="manager-metric-icon"><Smartphone size={18} /></span><span>Devices</span><strong>{devices.length}</strong><small>{activeCount} active in this workspace</small></article>
+      <article className="manager-metric"><span className="manager-metric-icon manager-metric-warning"><Clock3 size={18} /></span><span>Pending approvals</span><strong>{pendingCount}</strong><small>Waiting for an administrator</small></article>
+      <article className="manager-metric"><span className="manager-metric-icon manager-metric-danger"><ShieldAlert size={18} /></span><span>Compliance attention</span><strong>{attentionCount}</strong><small>Non-compliant or stale records</small></article>
+      <article className="manager-metric"><span className="manager-metric-icon manager-metric-info"><Bell size={18} /></span><span>Open alerts</span><strong>{alertCount}</strong><small>Based on current workspace signals</small></article>
+    </div>
+    <section className="manager-workflow" aria-label="How device governance works">
+      <div className="manager-workflow-heading"><h2>How device access is governed</h2><p>Four steps connect device management to protected application access.</p></div>
+      <div className="manager-workflow-steps">
+        <button type="button" onClick={() => onNavigate('intune')}><span>01</span><strong>Sync device</strong><small>Bring in managed-device status</small><ChevronRight size={15} /></button>
+        <button type="button" onClick={() => onNavigate('approvals')}><span>02</span><strong>Review request</strong><small>Approve or reject with a reason</small><ChevronRight size={15} /></button>
+        <button type="button" onClick={() => onNavigate('compliance')}><span>03</span><strong>Check compliance</strong><small>Review device security posture</small><ChevronRight size={15} /></button>
+        <button type="button" onClick={() => onNavigate('access')}><span>04</span><strong>Evaluate app access</strong><small>Allow or deny based on the checks</small><ChevronRight size={15} /></button>
+      </div>
+    </section>
+    <div className="manager-two-column">
+      <section className="panel manager-panel">
+        <div className="panel-heading"><div><h2>Needs attention</h2><p>Start with pending decisions and device posture issues.</p></div><button type="button" className="button button-secondary" onClick={() => onNavigate('alerts')}>View alerts</button></div>
+        {devices.filter((device) => device.approval === 'Pending' || device.compliance !== 'Compliant').slice(0, 5).map((device) =>
+          <div className="manager-list-row" key={device.recordId}><DeviceGlyph kind={device.kind} /><span><strong>{device.name}</strong><small>{device.owner} · {device.workspace}</small></span><span className="manager-row-status">{device.approval === 'Pending' ? 'Approval pending' : device.compliance}</span></div>)}
+        {pendingCount + attentionCount === 0 && <p className="manager-empty">No devices currently need attention.</p>}
+      </section>
+      <section className="panel manager-panel">
+        <div className="panel-heading"><div><h2>Recent audit activity</h2><p>Administrative and access events for this workspace.</p></div><button type="button" className="button button-secondary" onClick={() => onNavigate('audit')}>Open audit</button></div>
+        {audit.slice(0, 5).map((event) => <div className="manager-audit-row" key={event.eventId}><span className="manager-audit-dot" /><span><strong>{friendlyAuditAction(event.action)}</strong><small>{event.target} · {event.actor}</small></span><time>{event.date}</time></div>)}
+        {audit.length === 0 && <p className="manager-empty">Audit activity will appear when events are available.</p>}
+      </section>
+    </div>
+    <section className="manager-shortcuts" aria-label="Common tasks">
+      <button type="button" onClick={() => onNavigate('applications')}><Package size={18} /><span><strong>Applications</strong><small>Review registered PWAs</small></span><ChevronRight size={16} /></button>
+      <button type="button" onClick={() => onNavigate('intune')}><RefreshCw size={18} /><span><strong>MDM integrations</strong><small>Check device sync status</small></span><ChevronRight size={16} /></button>
+      <button type="button" onClick={() => onNavigate('reports')}><Download size={18} /><span><strong>Reports</strong><small>Export inventory and audit data</small></span><ChevronRight size={16} /></button>
+    </section>
+  </>
+}
+
+function ApplicationsPage({
+  applications,
+  isDemoMode,
+  onAdd,
+  onOpenAccessTest,
+}: {
+  applications: ManagedApplication[]
+  isDemoMode: boolean
+  onAdd: (application: ManagedApplication) => void
+  onOpenAccessTest: () => void
+}) {
+  const [formOpen, setFormOpen] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  function submitApplication(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const name = String(form.get('name') ?? '').trim()
+    const originInput = String(form.get('origin') ?? '').trim()
+    const clientId = String(form.get('clientId') ?? '').trim()
+    const workspace = String(form.get('workspace') ?? '').trim()
+    let origin: URL
+    try {
+      origin = new URL(originInput)
+    } catch {
+      setFormError('Enter a valid application URL, including https://.')
+      return
+    }
+    if (!name || !clientId || !workspace || !['https:', 'http:'].includes(origin.protocol)) {
+      setFormError('Complete each field with a valid application URL.')
+      return
+    }
+    onAdd({
+      id: `APP-${Date.now()}`,
+      name,
+      origin: origin.origin,
+      clientId,
+      workspaces: [workspace],
+    })
+    event.currentTarget.reset()
+    setFormError('')
+    setFormOpen(false)
+  }
+
+  return <>
+    <PageHeading eyebrow="APPLICATION ACCESS" title="Applications" description="Review the PWAs available to this workspace and their registered origins.">
+      <button type="button" className="button button-secondary" onClick={onOpenAccessTest}><ShieldCheck size={15} /> Test access</button>
+      <button type="button" className="button button-primary" onClick={() => setFormOpen((open) => !open)}><Package size={15} /> Register application</button>
+    </PageHeading>
+    <div className="manager-demo-note"><AlertTriangle size={16} /><span>{isDemoMode ? 'Sample application registry. New entries stay in this page until it is reloaded and are not sent to a server.' : 'Application registry is a client-side prototype; new entries are not persisted by the service.'}</span></div>
+    {formOpen && <form className="panel application-form" onSubmit={submitApplication}>
+      <div className="panel-heading"><div><h2>Register a PWA</h2><p>Provide the application identity and the workspace allowed to use it.</p></div><button type="button" className="button button-secondary" onClick={() => { setFormOpen(false); setFormError('') }}>Cancel</button></div>
+      <div className="application-form-grid">
+        <label className="manager-field"><span>Application name</span><input name="name" required maxLength={80} placeholder="Customer Workspace" /></label>
+        <label className="manager-field"><span>Application origin</span><input name="origin" type="url" required placeholder="https://app.example.com" /></label>
+        <label className="manager-field"><span>Client ID</span><input name="clientId" required maxLength={120} placeholder="com.example.workspace" /></label>
+        <label className="manager-field"><span>Allowed workspace</span><input name="workspace" required maxLength={80} placeholder="Engineering" /></label>
+      </div>
+      {formError && <p className="friendly-inline-error" role="alert">{formError}</p>}
+      <div className="application-form-actions"><span>Use an HTTPS origin for production applications.</span><button type="submit" className="button button-primary">Add to registry</button></div>
+    </form>}
+    <section className="panel manager-panel">
+      <div className="panel-heading"><div><h2>Registered applications</h2><p>{applications.length} application{applications.length === 1 ? '' : 's'} · allowed workspaces and identifiers</p></div><span className="source-chip"><Package size={14} /> Registry</span></div>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>APPLICATION</th><th>ORIGIN</th><th>CLIENT ID</th><th>ALLOWED WORKSPACES</th></tr></thead>
+        <tbody>{applications.map((application) => <tr key={application.id}><td><strong>{application.name}</strong><small className="manager-app-id">{application.id}</small></td><td><code>{application.origin}</code></td><td><code>{application.clientId}</code></td><td>{application.workspaces.join(', ')}</td></tr>)}</tbody>
+      </table></div>
+      <div className="manager-table-footnote"><Shield size={14} /> Access decisions still require a registered device, approval, and compliant posture.</div>
+    </section>
+  </>
+}
+
+function AlertsPage({
+  alerts,
+  hasUnread,
+  onMarkRead,
+  onOpen,
+}: {
+  alerts: PortalNotification[]
+  hasUnread: boolean
+  onMarkRead: () => void
+  onOpen: (alert: PortalNotification) => void
+}) {
+  return <>
+    <PageHeading eyebrow="WORKSPACE MONITORING" title="Alerts" description="Review approval, compliance, synchronization, and security signals.">
+      <button type="button" className="button button-secondary" onClick={onMarkRead} disabled={!hasUnread || alerts.length === 0}>Mark all as read</button>
+    </PageHeading>
+    <div className="manager-demo-note"><Bell size={16} /><span>Alerts shown here are generated from currently loaded device and audit data. Email delivery and alert policies are not configured in this prototype.</span></div>
+    <section className="panel manager-panel">
+      <div className="panel-heading"><div><h2>Current alerts</h2><p>{alerts.length} item{alerts.length === 1 ? '' : 's'} need review or acknowledgement.</p></div><span className="source-chip">{hasUnread ? 'Unread' : 'Reviewed'}</span></div>
+      {alerts.map((alert) => <button type="button" className="manager-alert-row" key={alert.id} onClick={() => onOpen(alert)}>
+        <span className="manager-alert-icon">{alert.icon}</span><span><strong>{alert.title}</strong><small>{alert.description}</small></span><ChevronRight size={17} />
+      </button>)}
+      {alerts.length === 0 && <p className="manager-empty">You’re all caught up. New workspace alerts will appear here.</p>}
+    </section>
+  </>
+}
+
+function ReportsPage({
+  devices,
+  audit,
+  isDemoMode,
+  exportingAudit,
+  onExportAudit,
+  onExportInventory,
+}: {
+  devices: Device[]
+  audit: AuditEvent[]
+  isDemoMode: boolean
+  exportingAudit: boolean
+  onExportAudit: (format: 'csv' | 'json') => void
+  onExportInventory: () => void
+}) {
+  const compliantCount = devices.filter((device) => device.compliance === 'Compliant').length
+  return <>
+    <PageHeading eyebrow="GOVERNANCE REPORTING" title="Reports" description="Download scoped inventory and audit evidence for review.">
+      <span className="source-chip">{isDemoMode ? 'Sample data' : 'Current workspace'}</span>
+    </PageHeading>
+    <div className="manager-demo-note"><FileClock size={16} /><span>Exports are limited to the currently selected tenant and workspace. Demo exports contain sample records.</span></div>
+    <div className="manager-report-grid">
+      <article className="panel manager-report-card"><span className="manager-report-icon"><Smartphone size={19} /></span><h2>Device inventory</h2><p>{devices.length} devices · {compliantCount} compliant. Includes approval, compliance, and lifecycle status.</p><button type="button" className="button button-primary" onClick={onExportInventory}><Download size={15} /> Download inventory CSV</button></article>
+      <article className="panel manager-report-card"><span className="manager-report-icon"><FileClock size={19} /></span><h2>Audit evidence</h2><p>{audit.length} events. Download records with actor, action, result, reason, and correlation ID.</p><div className="export-actions"><button type="button" className="button button-secondary" onClick={() => onExportAudit('csv')} disabled={exportingAudit}><Download size={14} /> CSV</button><button type="button" className="button button-secondary" onClick={() => onExportAudit('json')} disabled={exportingAudit}><Download size={14} /> JSON</button></div></article>
+    </div>
+  </>
+}
+
+function SettingsPage({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
+  const links: { title: string; description: string; screen: Screen; icon: LucideIcon }[] = [
+    { title: 'Tenant and workspace', description: 'Choose the organization and workspace in scope.', screen: 'scope', icon: MonitorCog },
+    { title: 'User and roles', description: 'Review the current administrator profile and permissions.', screen: 'identity', icon: Users },
+    { title: 'MDM integration', description: 'Check provider connectivity and sync health.', screen: 'intune', icon: RefreshCw },
+    { title: 'PWA access check', description: 'Test a device access decision for a registered app.', screen: 'access', icon: ShieldCheck },
+    { title: 'Remote commands', description: 'Request a supported device action and provide a reason.', screen: 'commands', icon: LockKeyhole },
+    { title: 'Device activity', description: 'Review the activity signals currently available.', screen: 'signals', icon: Activity },
+  ]
+  return <>
+    <PageHeading eyebrow="ADMINISTRATION" title="Settings" description="Manage workspace context and open the available governance controls." />
+    <div className="manager-demo-note"><AlertTriangle size={16} /><span>Authentication, role enforcement, provider credentials, retention, and policy configuration require server-side setup; this prototype does not change those settings.</span></div>
+    <section className="manager-settings-grid" aria-label="Administration settings">
+      {links.map(({ title, description, screen, icon: Icon }) => <button type="button" className="manager-settings-card" key={screen} onClick={() => onNavigate(screen)}>
+        <span className="manager-settings-icon"><Icon size={19} /></span><span><strong>{title}</strong><small>{description}</small></span><ChevronRight size={16} />
+      </button>)}
+    </section>
+    <section className="panel manager-panel manager-settings-note"><div className="panel-heading"><div><h2>Privacy and tracking</h2><p>Location history is optional and disabled by default.</p></div><Shield size={17} /></div><p>Activity and last-used signals shown in this portal come from the available sample or service records. Inactivity thresholds, retention periods, and location collection are not configurable here yet.</p></section>
+  </>
 }
 
 function PwaAccessPage({
   devices,
+  applications,
   isDemoMode,
   selectedDeviceId,
   onSelectDevice,
   onEvaluate,
 }: {
   devices: Device[]
+  applications: ManagedApplication[]
   isDemoMode: boolean
   selectedDeviceId: string
   onSelectDevice: (deviceId: string) => void
@@ -1420,7 +1764,7 @@ function PwaAccessPage({
   }
 
   return <>
-    <PageHeading eyebrow="MODULE 7 / APPLICATION ACCESS" title="PWA Gatekeeper" description="Check whether a device meets company security rules before opening a work app." />
+    <PageHeading eyebrow="MODULE 7 / APPLICATION ACCESS" title="PWA Access Control" description="Check whether a device meets company security rules before opening a work app." />
     <div className="simulator-layout">
     <section className="panel access-simulator">
       <div className="panel-heading"><div><h2>Check device security</h2><p>Choose a device to see whether it is ready to access the workspace.</p></div><span className="source-chip"><Shield size={14} /> {isDemoMode ? 'Demo check' : 'Security check'}</span></div>
@@ -1430,9 +1774,7 @@ function PwaAccessPage({
           {devices.map((device) => <option key={device.recordId} value={device.recordId}>{device.id} · {device.name} — {device.owner}</option>)}
         </select></label>
         <label className="access-field"><span>Requested application</span><select value={requestedAppId} onChange={(event) => { setRequestedAppId(event.target.value); setResult(null); setError('') }} disabled={isEvaluating}>
-          <option value="com.northstar.workspace">GateLogiq Workspace</option>
-          <option value="com.northstar.support">GateLogiq Support</option>
-          <option value="com.northstar.analytics">GateLogiq Analytics</option>
+          {applications.map((application) => <option key={application.id} value={application.clientId}>{application.name}</option>)}
         </select></label>
         {selected && <div className="access-subject"><DeviceGlyph kind={selected.kind} /><div><strong>{selected.owner}</strong><span>{selected.email} · {selected.workspace}</span></div><span className="access-subject-id">User ID: {selected.ownerUserId}</span></div>}
         <button className="button button-primary access-test-button" title="Check approval, device security, and lifecycle status for this app." onClick={() => void evaluate()} disabled={!selected || isEvaluating}>
@@ -1494,7 +1836,7 @@ function IdentityRolesPage({
   isDemoMode: boolean
 }) {
   return <>
-    <PageHeading eyebrow="MODULE 1 / IDENTITY AND ACCESS" title="Authentication & Roles" description="See who is signed in and what they can manage, so access stays accountable." />
+    <PageHeading eyebrow="MODULE 1 / IDENTITY AND ACCESS" title="User and Role Administration" description="See who is signed in and what they can manage, so access stays accountable." />
     <section className="executive-user-card">
       <div className="executive-user-avatar"><Users size={24} /></div>
       <div className="executive-user-main">
@@ -1544,7 +1886,7 @@ function WorkspaceTenantsPage({
     { name: 'Field Logistics', devices: '18', teams: 'Field teams', icon: Smartphone },
   ]
   return <>
-    <PageHeading eyebrow="MODULE 2 / TENANT AND WORKSPACE" title="Workspace & Tenants" description="Choose a company and workspace to see the right devices and access requests." />
+    <PageHeading eyebrow="MODULE 2 / TENANT AND WORKSPACE" title="Tenant and Workspace Management" description="Choose a company and workspace to see the right devices and access requests." />
     <section className="workspace-tenant-bar">
       <label><span>Tenant</span><select value={tenant} onChange={(event) => onTenantChange(event.target.value)} aria-label="Select tenant">
         <option>Acme Corporation</option><option>Northwind Health</option><option>Contoso Group</option>
@@ -1595,7 +1937,7 @@ function IntunePage({
 }) {
   const isHealthy = syncIsFresh && !isDemoMode
   return <>
-    <PageHeading eyebrow="MODULE 5 / DEVICE MANAGEMENT" title="Intune Sync" description="Check when the device list was updated and refresh it when needed." />
+    <PageHeading eyebrow="MODULE 5 / DEVICE MANAGEMENT" title="MDM Integrations" description="Check when the device list was updated and refresh it when needed." />
     <section className={`executive-sync-hero ${isHealthy ? 'sync-hero-healthy' : ''}`} aria-label="Intune connection status">
       <div className="sync-hero-top">
         <span className="sync-hero-icon"><MonitorCog size={24} /></span>
@@ -1635,7 +1977,7 @@ function CompliancePage({ devices, isDemoMode, onOpenDevice }: { devices: Device
   ]
 
   return <>
-    <PageHeading eyebrow="MODULE 6 / DEVICE SAFETY" title="Compliance Posture" description="See which devices meet company security rules and which need attention." />
+    <PageHeading eyebrow="MODULE 6 / DEVICE SAFETY" title="Compliance" description="See which devices meet company security rules and which need attention." />
     <section className="compliance-summary">
       <div title="Share of device records that meet the current security rules."><span className="compliance-summary-icon"><ShieldCheck size={20} /></span><span>Devices meeting policy</span><strong>{complianceRate}</strong><small>{compliantCount} of {devices.length} records</small></div>
       <div title="Devices that do not meet policy or have out-of-date security information."><span className="compliance-summary-icon compliance-summary-warning"><AlertTriangle size={20} /></span><span>Needs attention</span><strong>{(nonCompliantCount + staleCount).toLocaleString()}</strong><small>Non-compliant or out of date</small></div>
@@ -1667,7 +2009,7 @@ function SignalsPage({
   const selected = devices.find((device) => device.recordId === selectedDeviceId) ?? devices[0]
 
   return <>
-    <PageHeading eyebrow="MODULE 8 / DEVICE ACTIVITY" title="Activity Signals" description="See when this device last connected, checked in, and reported activity.">
+    <PageHeading eyebrow="MODULE 8 / DEVICE ACTIVITY" title="Device Tracking" description="See when this device last connected, checked in, and reported activity.">
       <label className="module-device-picker" title="Choose which device’s activity dates to view."><span>Device</span><select value={selected?.recordId ?? ''} onChange={(event) => onSelectDevice(event.target.value)} disabled={devices.length === 0}>
         {devices.length === 0 && <option value="">No devices available</option>}
         {devices.map((device) => <option key={device.recordId} value={device.recordId}>{device.name} · {device.owner}</option>)}
@@ -1704,7 +2046,7 @@ function RemoteCommandsPage({
   onRemoteCommand: (device: Device, command?: RemoteCommand) => void
 }) {
   return <>
-    <PageHeading eyebrow="MODULE 9 / DEVICE CARE" title="Remote Commands" description="Choose a device action and record why it is needed." />
+    <PageHeading eyebrow="MODULE 9 / DEVICE CARE" title="Remote Command Console" description="Choose a device action and record why it is needed." />
     <section className="remote-device-grid">
       {devices.map((device) => <article className="remote-device-card" key={device.recordId}>
         <div className="remote-device-heading"><DeviceGlyph kind={device.kind} /><span><strong>{device.name}</strong><small>{device.owner} · {device.workspace}</small></span><span className={`lifecycle-pill lifecycle-${device.lifecycleState.toLowerCase()}`} title={lifecycleHelp(device.lifecycleState)}>{device.lifecycleState}</span></div>
@@ -1737,7 +2079,7 @@ function ApprovalsPage({ devices, workspace, isDemoMode, onReview }: {
   const attentionCount = devices.filter((device) => device.compliance !== 'Compliant').length
 
   return <>
-    <PageHeading eyebrow="MODULE 4 / ACCESS REQUESTS" title="Approval Queue" description="Review access requests and record a reason for each decision." />
+    <PageHeading eyebrow="MODULE 4 / ACCESS REQUESTS" title="Pending Approval Queue" description="Review access requests and record a reason for each decision." />
     <section className="executive-summary-grid approval-summary">
       <article title="Requests in this workspace that still need a decision."><span className="summary-icon summary-amber"><Clock3 size={18} /></span><span>Waiting for review</span><strong>{pending.length}</strong><small>Requests in {workspace}</small></article>
       <article title="Devices approved to request access; they must still meet security rules."><span className="summary-icon summary-green"><CheckCircle2 size={18} /></span><span>Approved devices</span><strong>{approvedCount}</strong><small>Approval does not replace security checks</small></article>
@@ -1791,7 +2133,7 @@ function DevicesPage({ devices, isDemoMode, onOpenDevice }: {
       .toLowerCase().includes(search.toLowerCase())
       && (state === 'All approval states' || device.approval === state))
   return <>
-    <PageHeading eyebrow="MODULE 3 / MANAGED DEVICES" title="Device Registry" description="Find company devices and check their owners, approvals, and security status." />
+    <PageHeading eyebrow="MODULE 3 / MANAGED DEVICES" title="Device Inventory" description="Find company devices and check their owners, approvals, and security status." />
     <section className="executive-summary-grid">
       <article title="Number of device records in the selected workspace."><span className="summary-icon summary-blue"><Smartphone size={18} /></span><span>Devices in view</span><strong>{devices.length}</strong><small>{isDemoMode ? 'Representative sample' : 'Current workspace'}</small></article>
       <article title="Approved, compliant devices that are still active."><span className="summary-icon summary-green"><ShieldCheck size={18} /></span><span>Ready for access</span><strong>{devices.filter((device) => device.approval === 'Approved' && device.compliance === 'Compliant' && device.lifecycleState === 'Active').length}</strong><small>Approved and meeting policy</small></article>
@@ -1881,7 +2223,7 @@ function AuditPage({ events, isDemoMode, onExport, exporting, initialSearch, sea
   }
 
   return <>
-    <PageHeading eyebrow="MODULE 10 / ACCOUNTABILITY" title="Audit & Evidence" description="Review past decisions and export a report for follow-up.">
+    <PageHeading eyebrow="MODULE 10 / ACCOUNTABILITY" title="Security/Audit Explorer" description="Review past decisions and export a report for follow-up.">
       <button className="button bg-blue-600 hover:bg-blue-700 text-white fill-white stroke-white" title="Download the activity history as a CSV spreadsheet." style={{ color: '#ffffff' }} onClick={() => onExport('csv')} disabled={exporting}>
         <Download size={16} style={{ color: '#ffffff', stroke: '#ffffff' }} />{exporting ? 'Preparing file…' : 'Export to Excel / CSV'}
       </button>
