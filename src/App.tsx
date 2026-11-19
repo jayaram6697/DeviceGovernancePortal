@@ -87,9 +87,36 @@ type AuditEvent = {
   scope?: string
 }
 
+type PersistedDemoDeviceState = {
+  approval: ApprovalState
+  lifecycleState: ApiDeviceRecord['lifecycleState']
+  lastMdmSyncAt: string | null
+}
+
 type PersistedDemoState = {
-  approvals: Record<string, ApprovalState>
+  devices?: Record<string, PersistedDemoDeviceState>
+  approvals?: Record<string, ApprovalState>
   audit: AuditEvent[]
+}
+
+type PortalNotification = {
+  id: string
+  icon: string
+  title: string
+  description: string
+  screen: Screen
+  deviceId?: string
+  auditSearch?: string
+}
+
+const demoProfileEmails: Record<string, string> = {
+  'Acme Corporation': 'alex.mercer@acmecorp.com',
+  'Northwind Health': 'alex.mercer@northwindhealth.com',
+  'Contoso Group': 'alex.mercer@contoso.com',
+}
+
+function getDemoProfileEmail(tenant: string): string {
+  return demoProfileEmails[tenant] ?? demoProfileEmails['Acme Corporation']
 }
 
 function demoStateStorageKey(tenant: string, workspace: DemoWorkspace): string {
@@ -99,6 +126,15 @@ function demoStateStorageKey(tenant: string, workspace: DemoWorkspace): string {
 function isApprovalState(value: unknown): value is ApprovalState {
   return value === 'Pending' || value === 'Approved' || value === 'Rejected'
     || value === 'Suspended' || value === 'Revoked'
+}
+
+function isPersistedDemoDeviceState(value: unknown): value is PersistedDemoDeviceState {
+  if (typeof value !== 'object' || value === null) return false
+  const device = value as Record<string, unknown>
+  return isApprovalState(device.approval)
+    && (device.lifecycleState === 'Active' || device.lifecycleState === 'Suspended'
+      || device.lifecycleState === 'Retired' || device.lifecycleState === 'WipeIssued')
+    && (device.lastMdmSyncAt === null || typeof device.lastMdmSyncAt === 'string')
 }
 
 function isAuditEvent(value: unknown): value is AuditEvent {
@@ -125,23 +161,47 @@ function readPersistedDemoState(storageKey: string): PersistedDemoState | null {
     throw new Error('Stored demo data has an invalid format.')
   }
   const value = parsed as Record<string, unknown>
+  const storedDevices = value.devices
   const storedApprovals = value.approvals
-  if (typeof storedApprovals !== 'object' || storedApprovals === null || Array.isArray(storedApprovals)
-    || !Array.isArray(value.audit) || !value.audit.every(isAuditEvent)) {
+  if (!Array.isArray(value.audit) || !value.audit.every(isAuditEvent)
+    || (storedDevices === undefined && storedApprovals === undefined)) {
     throw new Error('Stored demo data is incomplete or invalid.')
   }
-  const approvals = Object.create(null) as Record<string, ApprovalState>
-  for (const [deviceId, approval] of Object.entries(storedApprovals as Record<string, unknown>)) {
-    if (!isApprovalState(approval)) throw new Error('Stored demo approval state is invalid.')
-    approvals[deviceId] = approval
+  if (storedDevices !== undefined
+    && (typeof storedDevices !== 'object' || storedDevices === null || Array.isArray(storedDevices))) {
+    throw new Error('Stored demo device state is invalid.')
   }
-  return { approvals, audit: value.audit }
+  if (storedApprovals !== undefined
+    && (typeof storedApprovals !== 'object' || storedApprovals === null || Array.isArray(storedApprovals))) {
+    throw new Error('Stored demo approvals are invalid.')
+  }
+  const devices = Object.create(null) as Record<string, PersistedDemoDeviceState>
+  if (storedDevices) {
+    for (const [deviceId, device] of Object.entries(storedDevices as Record<string, unknown>)) {
+      if (!isPersistedDemoDeviceState(device)) throw new Error('Stored demo device state is invalid.')
+      devices[deviceId] = device
+    }
+  }
+  const approvals = Object.create(null) as Record<string, ApprovalState>
+  if (storedApprovals) {
+    for (const [deviceId, approval] of Object.entries(storedApprovals as Record<string, unknown>)) {
+      if (!isApprovalState(approval)) throw new Error('Stored demo approval state is invalid.')
+      approvals[deviceId] = approval
+    }
+  }
+  return { devices, approvals, audit: value.audit }
 }
 
 function persistDemoState(storageKey: string, devices: Device[], audit: AuditEvent[]): void {
-  const approvals = Object.create(null) as Record<string, ApprovalState>
-  for (const device of devices) approvals[device.recordId] = device.approval
-  window.localStorage.setItem(storageKey, JSON.stringify({ approvals, audit } satisfies PersistedDemoState))
+  const persistedDevices = Object.create(null) as Record<string, PersistedDemoDeviceState>
+  for (const device of devices) {
+    persistedDevices[device.recordId] = {
+      approval: device.approval,
+      lifecycleState: device.lifecycleState,
+      lastMdmSyncAt: device.lastMdmSyncAt,
+    }
+  }
+  window.localStorage.setItem(storageKey, JSON.stringify({ devices: persistedDevices, audit } satisfies PersistedDemoState))
 }
 
 function formatRelativeTime(value: string | null): string | null {
@@ -372,7 +432,19 @@ function loadDemoWorkspaceData(tenant: string, workspace: DemoWorkspace): { devi
   const persisted = readPersistedDemoState(demoStateStorageKey(tenant, workspace))
   return {
     devices: persisted
-      ? seededDevices.map((device) => ({ ...device, approval: persisted.approvals[device.recordId] ?? device.approval }))
+      ? seededDevices.map((device) => {
+        const saved = persisted.devices?.[device.recordId]
+        if (!saved) return { ...device, approval: persisted.approvals?.[device.recordId] ?? device.approval }
+        return {
+          ...device,
+          approval: saved.approval,
+          lifecycleState: saved.lifecycleState,
+          lastMdmSyncAt: saved.lastMdmSyncAt,
+          signals: device.signals.map((signal) => signal.label === 'MDM cloud sync'
+            ? { ...signal, occurredAt: saved.lastMdmSyncAt, value: formatRelativeTime(saved.lastMdmSyncAt) }
+            : signal),
+        }
+      })
       : seededDevices,
     audit: persisted?.audit ?? createDemoAudit(),
   }
@@ -426,7 +498,7 @@ function DeviceGlyph({ kind }: { kind: DeviceKind }) {
 }
 
 function LoginPage({ onSignIn }: { onSignIn: (email: string) => void }) {
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState('alex.mercer@acmecorp.com')
   const [password, setPassword] = useState('')
   const [helpMessage, setHelpMessage] = useState('')
 
@@ -464,6 +536,7 @@ function App() {
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [auditSearchRequest, setAuditSearchRequest] = useState({ query: '', version: 0 })
   const [isDemoMode, setIsDemoMode] = useState(false)
   const [demoWorkspace, setDemoWorkspace] = useState<DemoWorkspace>('Engineering')
   const demoWorkspaceRef = useRef<DemoWorkspace>('Engineering')
@@ -526,7 +599,7 @@ function App() {
             setApiError('')
           } catch (storageError) {
             console.error('Unable to restore saved demo data.', storageError)
-            sampleDevices = createDemoDevices(demoWorkspace)
+            sampleDevices = createDemoDevices(fallbackWorkspace)
             sampleAudit = createDemoAudit()
             setApiError('Saved demo data could not be restored; the initial sample data is shown.')
           }
@@ -534,6 +607,7 @@ function App() {
           setAudit(sampleAudit)
           setDemoDataScope({ tenant, workspace: fallbackWorkspace })
           setSelectedDeviceId(sampleDevices[0]?.recordId ?? '')
+          setUserEmail(getDemoProfileEmail(tenant))
           setIsDemoMode(true)
           setConnectionRetryMessage(reloadToken > 0 ? 'The backend is still offline. Demo mode remains available.' : '')
         } else {
@@ -617,6 +691,7 @@ function App() {
   }, null)
   const isMdmSyncFresh = devices.length > 0 && devices.every((device) =>
     device.lastMdmSyncAt !== null && Date.now() - new Date(device.lastMdmSyncAt).getTime() <= 60 * 60_000)
+  const syncStatusClass = isDemoMode ? 'sync-mini-demo' : isMdmSyncFresh ? 'sync-mini-current' : ''
   const visibleWorkspace = isDemoMode ? demoWorkspace : workspace
   const screenTitle: Record<Screen, string> = {
     identity: 'Authentication & Roles',
@@ -640,6 +715,61 @@ function App() {
     ? devices.filter((device) =>
       `${device.name} ${device.owner} ${device.email} ${device.id} ${device.platform} ${device.version} ${device.workspace}`.toLowerCase().includes(searchTerm))
     : []
+  const matchingAuditEvents = searchTerm
+    ? audit.filter((event) =>
+      `${event.actor} ${event.action} ${event.target} ${event.correlationId} ${event.eventId} ${event.reason} ${event.scope ?? ''}`
+        .toLowerCase().includes(searchTerm)).slice(0, 5)
+    : []
+  const notifications: PortalNotification[] = []
+  if (isDemoMode) {
+    notifications.push({
+      id: `demo-offline:${tenant}:${visibleWorkspace}`,
+      icon: '⚠️',
+      title: 'Demo mode active',
+      description: 'Live backend is unavailable; this view uses sample data.',
+      screen: 'intune',
+    })
+  } else if (!isMdmSyncFresh) {
+    notifications.push({
+      id: `sync-delayed:${tenant}:${workspace}`,
+      icon: '⚠️',
+      title: 'Intune sync needs attention',
+      description: latestMdmSyncAt
+        ? `Last device sync was ${formatCompactRelativeTime(latestMdmSyncAt)}.`
+        : 'No device synchronization timestamp is available.',
+      screen: 'intune',
+    })
+  }
+  devices.filter((device) => device.approval === 'Pending').forEach((device) => {
+    notifications.push({
+      id: `approval:${device.recordId}`,
+      icon: '📱',
+      title: 'Approval required',
+      description: `${device.name} · ${device.owner} is awaiting a decision.`,
+      screen: 'approvals',
+      deviceId: device.recordId,
+    })
+  })
+  devices.filter((device) => device.compliance !== 'Compliant').forEach((device) => {
+    notifications.push({
+      id: `compliance:${device.recordId}`,
+      icon: '🛡️',
+      title: 'Compliance posture alert',
+      description: `${device.name} is ${device.compliance.toLowerCase()}.`,
+      screen: 'compliance',
+      deviceId: device.recordId,
+    })
+  })
+  audit.filter((event) => event.outcome === 'Denied' || event.outcome === 'Review').slice(0, 3).forEach((event) => {
+    notifications.push({
+      id: `audit:${event.eventId}`,
+      icon: '🧾',
+      title: 'Audit event needs review',
+      description: `${event.action.replace(/_/g, ' ')} · ${event.target}`,
+      screen: 'audit',
+      auditSearch: event.correlationId,
+    })
+  })
 
   async function openDevice(device: Device) {
     setReviewDeviceId(null)
@@ -822,6 +952,26 @@ function App() {
     window.setTimeout(() => setNotice(''), 4000)
   }
 
+  function switchTenant(nextTenant: string) {
+    setTenant(nextTenant)
+    if (!isDemoMode) return
+    setUserEmail(getDemoProfileEmail(nextTenant))
+    let demoData: { devices: Device[]; audit: AuditEvent[] }
+    try {
+      demoData = loadDemoWorkspaceData(nextTenant, demoWorkspace)
+      setApiError('')
+    } catch (storageError) {
+      console.error('Unable to restore saved demo data.', storageError)
+      demoData = { devices: createDemoDevices(demoWorkspace), audit: createDemoAudit() }
+      setApiError('Saved demo data could not be restored; the initial sample data is shown.')
+    }
+    setDevices(demoData.devices)
+    setAudit(demoData.audit)
+    setDemoDataScope({ tenant: nextTenant, workspace: demoWorkspace })
+    setSelectedDeviceId(demoData.devices[0]?.recordId ?? '')
+    setReviewDeviceId(null)
+  }
+
   function resetDemoData() {
     if (!isDemoMode) return
     try {
@@ -846,6 +996,23 @@ function App() {
     setMobileNavOpen(false)
   }
 
+  function openNotification(notification: PortalNotification) {
+    if (notification.deviceId) {
+      const device = devices.find((item) => item.recordId === notification.deviceId)
+      if (device) {
+        setSelectedDeviceId(device.recordId)
+        if (notification.screen === 'approvals') setReviewDeviceId(device.id)
+      }
+    }
+    if (notification.auditSearch) requestAuditSearch(notification.auditSearch)
+    navigate(notification.screen)
+    setIsNotificationsOpen(false)
+  }
+
+  function requestAuditSearch(query: string) {
+    setAuditSearchRequest((current) => ({ query, version: current.version + 1 }))
+  }
+
   function signOut() {
     setProfileMenuOpen(false)
     setIsNotificationsOpen(false)
@@ -866,8 +1033,8 @@ function App() {
         </div>
         {screen !== 'scope' && <>
           <div className="tenant-switcher">
-            <span className="tenant-avatar">AC</span>
-            <label className="select-stack"><span>Tenant</span><select value={tenant} onChange={(event) => setTenant(event.target.value)} aria-label="Tenant"><option>Acme Corporation</option><option>Northwind Health</option><option>Contoso Group</option></select></label>
+            <span className="tenant-avatar">{tenant === 'Northwind Health' ? 'NH' : tenant === 'Contoso Group' ? 'CG' : 'AC'}</span>
+            <label className="select-stack"><span>Tenant</span><select value={tenant} onChange={(event) => switchTenant(event.target.value)} aria-label="Tenant"><option>Acme Corporation</option><option>Northwind Health</option><option>Contoso Group</option></select></label>
             <ChevronDown size={15} className="select-chevron" />
           </div>
           <div className="workspace-switcher">
@@ -905,13 +1072,15 @@ function App() {
           </div>)}
         </nav>
         <div className="sidebar-bottom">
-          <div className={`sync-mini ${isMdmSyncFresh ? 'sync-mini-current' : ''}`} role="status">
+          <div className={`sync-mini ${syncStatusClass}`} role="status">
             <span className="sync-mini-dot" aria-hidden="true" />
-            <span>{`Intune Sync: ${isMdmSyncFresh ? 'Healthy' : 'Delayed'} (${formatCompactRelativeTime(latestMdmSyncAt) ?? '—'})`}</span>
+            <span>{isDemoMode
+              ? 'Intune Sync: Simulated (Demo Data)'
+              : `Intune Sync: ${isMdmSyncFresh ? 'Healthy' : 'Delayed'} (${formatCompactRelativeTime(latestMdmSyncAt) ?? '—'})`}</span>
           </div>
           <div className="profile-menu-wrapper" ref={profileMenuRef}>
             <button type="button" className="profile-row" aria-label="Open user profile details" aria-haspopup="dialog" aria-expanded={profileMenuOpen} aria-controls="profile-details" onClick={() => setProfileMenuOpen((open) => !open)}>
-              <span className="profile-avatar">IT</span><span className="profile-copy"><strong>{userEmail}</strong><small>Customer IT Administrator</small></span><MoreHorizontal size={18} />
+              <span className="profile-avatar">IT</span><span className="profile-copy"><strong title={userEmail}>{userEmail}</strong><small>Customer IT Administrator</small></span><MoreHorizontal size={18} />
             </button>
             {profileMenuOpen && <div className="profile-popover" id="profile-details" role="dialog" aria-label="User profile details">
               <div className="profile-popover-details"><span className="profile-popover-avatar">IT</span><span className="profile-popover-copy"><strong>{userEmail}</strong><small>Active demo session</small><span className="profile-role-badge">Customer IT Administrator</span></span></div>
@@ -939,27 +1108,26 @@ function App() {
                 onClick={() => setIsNotificationsOpen((open) => !open)}
               >
                 <Bell size={18} />
-                {hasUnreadNotifications && <span />}
+                {hasUnreadNotifications && notifications.length > 0 && <span />}
               </button>
               {isNotificationsOpen && <section className="notification-menu" id="notification-menu" role="dialog" aria-label="Notifications">
                 <header className="notification-menu-header">
                   <h2>Notifications</h2>
-                  <button type="button" onClick={() => setHasUnreadNotifications(false)} disabled={!hasUnreadNotifications}>Mark as read</button>
+                  <button type="button" onClick={() => setHasUnreadNotifications(false)} disabled={!hasUnreadNotifications || notifications.length === 0}>Mark as read</button>
                 </header>
                 <div className="notification-list">
-                  <article className="notification-item">
-                    <span className="notification-emoji" aria-hidden="true">⚠️</span>
-                    <span><strong>Intune sync delayed</strong><small>Last synchronization was 45 minutes ago.</small></span>
-                  </article>
-                  <button type="button" className="notification-item notification-action" onClick={() => { navigate('approvals'); setIsNotificationsOpen(false) }}>
-                    <span className="notification-emoji" aria-hidden="true">📱</span>
-                    <span><strong>Approval required</strong><small>Sarah&apos;s Corporate iPad Pro requested PWA access.</small></span>
-                    <ChevronRight size={16} />
-                  </button>
-                  <article className="notification-item">
-                    <span className="notification-emoji" aria-hidden="true">🛡️</span>
-                    <span><strong>Compliance posture alert</strong><small>Samsung Galaxy Tab Active4 failed disk encryption rule.</small></span>
-                  </article>
+                  {notifications.length === 0
+                    ? <p className="notification-empty">You’re all caught up for {tenant} / {visibleWorkspace}.</p>
+                    : notifications.map((notification) => <button
+                      type="button"
+                      className="notification-item notification-action"
+                      key={notification.id}
+                      onClick={() => openNotification(notification)}
+                    >
+                      <span className="notification-emoji" aria-hidden="true">{notification.icon}</span>
+                      <span><strong>{notification.title}</strong><small>{notification.description}</small></span>
+                      <ChevronRight size={16} />
+                    </button>)}
                 </div>
               </section>}
             </div>
@@ -983,14 +1151,14 @@ function App() {
           {isLoading && <div className="loading-state" role="status">Loading devices for {visibleWorkspace}…</div>}
 
           {screen === 'identity' && <IdentityRolesPage email={userEmail} tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} />}
-          {screen === 'scope' && <WorkspaceTenantsPage tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} demoWorkspace={demoWorkspace} onTenantChange={setTenant} onWorkspaceChange={(next) => isDemoMode ? switchDemoWorkspace(next as DemoWorkspace) : setWorkspace(next)} />}
+          {screen === 'scope' && <WorkspaceTenantsPage tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} demoWorkspace={demoWorkspace} onTenantChange={switchTenant} onWorkspaceChange={(next) => isDemoMode ? switchDemoWorkspace(next as DemoWorkspace) : setWorkspace(next)} />}
           {screen === 'approvals' && <ApprovalsPage devices={devices} workspace={visibleWorkspace} isDemoMode={isDemoMode} onReview={(device) => setReviewDeviceId(device.id)} />}
           {screen === 'devices' && <DevicesPage devices={devices} isDemoMode={isDemoMode} onOpenDevice={openDevice} />}
           {screen === 'intune' && <IntunePage devices={devices} latestSyncAt={latestMdmSyncAt} syncIsFresh={isMdmSyncFresh} isSyncing={isSyncing} isDemoMode={isDemoMode} onSync={() => void runIntuneSync()} />}
           {screen === 'compliance' && <CompliancePage devices={devices} isDemoMode={isDemoMode} onOpenDevice={openDevice} />}
           {screen === 'detail' && detailLoading && <div className="loading-state" role="status">Loading device details…</div>}
           {screen === 'detail' && !detailLoading && selectedDevice && <DeviceDetail device={selectedDevice} onBack={() => navigate('devices')} onRemoteCommand={openRemoteCommand} />}
-          {screen === 'audit' && <AuditPage events={audit} isDemoMode={isDemoMode} onExport={exportAudit} exporting={exportingAudit} />}
+          {screen === 'audit' && <AuditPage events={audit} isDemoMode={isDemoMode} onExport={exportAudit} exporting={exportingAudit} initialSearch={auditSearchRequest.query} searchRequestVersion={auditSearchRequest.version} />}
           {screen === 'access' && <PwaAccessPage devices={devices} isDemoMode={isDemoMode} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} onEvaluate={testPwaAccess} />}
           {screen === 'signals' && <SignalsPage devices={devices} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} />}
           {screen === 'commands' && <RemoteCommandsPage devices={devices} isDemoMode={isDemoMode} onRemoteCommand={openRemoteCommand} />}
@@ -1011,14 +1179,14 @@ function App() {
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search devices, assigned users, or modules..."
-              aria-label="Search devices, assigned users, or modules"
+              placeholder="Search devices, users, modules, or audit logs..."
+              aria-label="Search devices, users, modules, or audit logs"
             />
             <kbd>ESC</kbd>
           </label>
           <div className="global-search-results" aria-live="polite">
-            {!searchTerm && <p className="global-search-hint">Type to find a device, assigned user, or governance module.</p>}
-            {searchTerm && matchingModules.length === 0 && matchingDevices.length === 0 && <p className="global-search-hint">No devices or modules match “{searchQuery.trim()}”.</p>}
+            {!searchTerm && <p className="global-search-hint">Search devices, assigned users, modules, or audit activity in the selected scope.</p>}
+            {searchTerm && matchingModules.length === 0 && matchingDevices.length === 0 && matchingAuditEvents.length === 0 && <p className="global-search-hint">No devices, modules, or audit events match “{searchQuery.trim()}”.</p>}
             {matchingModules.length > 0 && <>
               <h3>Modules</h3>
               {matchingModules.map(({ label, screen: target, icon: Icon }) => <button
@@ -1042,6 +1210,23 @@ function App() {
               >
                 <span className="global-search-result-icon"><DeviceGlyph kind={device.kind} /></span>
                 <span><strong>{device.name}</strong><small>{device.owner} · {device.id}</small></span>
+                <ChevronRight size={16} />
+              </button>)}
+            </>}
+            {matchingAuditEvents.length > 0 && <>
+              <h3>Audit logs</h3>
+              {matchingAuditEvents.map((event) => <button
+                type="button"
+                className="global-search-result"
+                key={event.eventId}
+                onClick={() => {
+                  requestAuditSearch(event.correlationId)
+                  navigate('audit')
+                  setIsSearchOpen(false)
+                }}
+              >
+                <span className="global-search-result-icon"><FileClock size={17} /></span>
+                <span><strong>{event.action.replace(/_/g, ' ')}</strong><small>{event.target} · {event.actor} · {event.correlationId}</small></span>
                 <ChevronRight size={16} />
               </button>)}
             </>}
@@ -1525,15 +1710,20 @@ function InfoField({ label, value }: { label: string; value: string }) {
   return <div className="info-field"><span>{label}</span><strong>{value}</strong></div>
 }
 
-function AuditPage({ events, isDemoMode, onExport, exporting }: {
+function AuditPage({ events, isDemoMode, onExport, exporting, initialSearch, searchRequestVersion }: {
   events: AuditEvent[]
   isDemoMode: boolean
   onExport: (format: 'csv' | 'json') => void
   exporting: boolean
+  initialSearch: string
+  searchRequestVersion: number
 }) {
   const [search, setSearch] = useState('')
   const [outcome, setOutcome] = useState('All outcomes')
   const [copied, setCopied] = useState('')
+  useEffect(() => {
+    if (initialSearch) setSearch(initialSearch)
+  }, [initialSearch, searchRequestVersion])
   const filtered = useMemo(() => events.filter((event) => {
     const matchesSearch = `${event.actor} ${event.action} ${event.target} ${event.correlationId} ${event.eventId} ${event.reason} ${event.scope ?? ''}`.toLowerCase().includes(search.toLowerCase())
     return matchesSearch && (outcome === 'All outcomes' || event.outcome.toLowerCase() === outcome.toLowerCase())
