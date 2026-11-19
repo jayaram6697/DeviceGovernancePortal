@@ -628,7 +628,7 @@ function App() {
     access: 'PWA gatekeeper',
     signals: 'Activity signals',
     commands: 'Remote commands',
-    audit: 'Audit & evidence',
+    audit: 'Audit & Evidence',
     detail: 'Device details',
   }
   const searchTerm = searchQuery.trim().toLowerCase()
@@ -1536,7 +1536,7 @@ function AuditPage({ events, isDemoMode, onExport, exporting }: {
   const [copied, setCopied] = useState('')
   const filtered = useMemo(() => events.filter((event) => {
     const matchesSearch = `${event.actor} ${event.action} ${event.target} ${event.correlationId} ${event.eventId} ${event.reason} ${event.scope ?? ''}`.toLowerCase().includes(search.toLowerCase())
-    return matchesSearch && (outcome === 'All outcomes' || event.outcome === outcome)
+    return matchesSearch && (outcome === 'All outcomes' || event.outcome.toLowerCase() === outcome.toLowerCase())
   }), [events, outcome, search])
 
   async function copyCorrelation(id: string) {
@@ -1559,7 +1559,7 @@ function AuditPage({ events, isDemoMode, onExport, exporting }: {
     </section>
     <section className="executive-list-panel">
       <div className="executive-section-heading"><div><span className="executive-kicker">RECENT ACTIVITY</span><h2>Security event history</h2><p>Every decision includes a reason and a reference ID.</p></div><span className="source-chip"><LockKeyhole size={14} />{isDemoMode ? 'Sample history' : 'Audit records'}</span></div>
-      <div className="table-toolbar audit-toolbar"><label className="search-field"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search people, events, or devices" /></label><label className="filter-select"><ListFilter size={15} /><select value={outcome} onChange={(event) => setOutcome(event.target.value)} aria-label="Filter by outcome"><option>All outcomes</option><option>Success</option><option>SUCCESS</option><option>Denied</option><option>Review</option></select><ChevronDown size={14} /></label></div>
+      <div className="table-toolbar audit-toolbar"><label className="search-field"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search people, events, or devices" /></label><label className="filter-select"><ListFilter size={15} /><select value={outcome} onChange={(event) => setOutcome(event.target.value)} aria-label="Filter by outcome"><option>All outcomes</option><option>Success</option><option>Denied</option><option>Review</option></select><ChevronDown size={14} /></label></div>
       <div className="audit-event-list">{filtered.map((event) => <article className="audit-event-card" key={event.eventId}>
         <span className={`audit-event-icon ${event.outcome === 'Success' || event.outcome === 'SUCCESS' ? 'audit-event-success' : 'audit-event-attention'}`}>
           {event.outcome === 'Success' || event.outcome === 'SUCCESS' ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}
@@ -1567,7 +1567,7 @@ function AuditPage({ events, isDemoMode, onExport, exporting }: {
         <div className="audit-event-main"><div><strong>{event.action.replace(/_/g, ' ')}</strong><StatusPill tone={event.outcome.toLowerCase() === 'success' ? 'success' : event.outcome.toLowerCase() as 'denied' | 'review'}>{event.outcome}</StatusPill></div>
           <p>{event.reason}</p><small>{event.actor} · {event.role} · {event.date} at {event.time}{event.scope ? ` · ${event.scope}` : ''}</small>
         </div>
-        <div className="audit-event-target"><span>Related to</span><strong>{event.target}</strong><button className="correlation-copy" title="Copy reference ID" onClick={() => void copyCorrelation(event.correlationId)}>{copied === event.correlationId ? 'Copied' : event.correlationId}{copied === event.correlationId ? <Check size={14} /> : <Copy size={14} />}</button></div>
+        <div className="audit-event-target"><span>Related to</span><strong>{event.target}</strong><button className="correlation-copy" title="Copy reference ID" onClick={() => void copyCorrelation(event.correlationId)}><span>{copied === event.correlationId ? 'Copied' : event.correlationId}</span>{copied === event.correlationId ? <Check size={14} /> : <Copy size={14} />}</button></div>
       </article>)}
       {filtered.length === 0 && <div className="executive-empty">No events match these filters.</div>}</div>
     </section>
