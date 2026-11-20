@@ -266,3 +266,4 @@ C:\Users\msai1\DeviceGovernancePortal\DeviceGovernancePlatform.Server\obj\Debug\
 C:\Users\msai1\DeviceGovernancePortal\DeviceGovernancePlatform.Server\obj\Debug\net8.0\DeviceGovernancePlatform.Server.pdb
 C:\Users\msai1\DeviceGovernancePortal\DeviceGovernancePlatform.Server\obj\Debug\net8.0\DeviceGovernancePlatform.Server.genruntimeconfig.cache
 C:\Users\msai1\DeviceGovernancePortal\DeviceGovernancePlatform.Server\obj\Debug\net8.0\ref\DeviceGovernancePlatform.Server.dll
+C:\Users\msai1\DeviceGovernancePortal\DeviceGovernancePlatform.Server\obj\Debug\net8.0\DeviceGovernancePlatform.Server.sourcelink.json
