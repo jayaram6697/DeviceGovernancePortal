@@ -2,29 +2,29 @@
 
 ## Release 1 visual direction
 
-An operational security console for customer IT administrators. The interface is dense enough for queue and audit work, with restrained color, crisp typography, persistent tenant/workspace context, and explicit status labels. Avoid consumer-device imagery and avoid implying that the browser can read OS inventory or issue device commands.
+A clear operational security console for customer IT administrators. Use a simple hierarchy, plain-language labels, persistent tenant/workspace context, and explicit status text. Keep queue and audit details scannable. Avoid consumer-device imagery and avoid implying that the browser can read OS inventory or issue device commands.
 
 ## Shared application shell
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ DeviceGate / MDM DEVICE GOVERNANCE    Tenant: Acme  Workspace: Production │
-│ Search                                    Helpdesk Admin      Profile   │
+│ GateLogiq / DEVICE GOVERNANCE         Tenant: Acme  Workspace: Production │
+│ Search                                    Administrator       Profile    │
 ├───────────────────┬──────────────────────────────────────────────────────┤
-│ Overview          │ SECURITY NOTICE  Intune sync is stale (last sync …) │
+│ Overview          │ WORKSPACE STATUS  Sample data / Connected           │
 │ Devices           ├──────────────────────────────────────────────────────┤
-│ Approvals       12│ Page title / scope / primary actions                │
-│ Policies          │                                                      │
+│ Approvals       12│ Page title / purpose / common actions / why it matters│
+│ Application access│                                                     │
 │ Applications      │ Main operational content                            │
-│ Audit             │                                                      │
+│ Operations        │                                                      │
 └───────────────────┴──────────────────────────────────────────────────────┘
 ```
 
-The sync notice remains prominent across protected administrative views. Tenant and workspace are visible at all times. Navigation labels map to the supplied UI catalog; Release 1 screens are Approvals, Devices, PWA Access Simulator, and Audit.
+The workspace status notice remains visible across modules but is visually distinct from module content. In demo mode it explains that records are samples, changes stay in this browser, and no real devices are changed; retry and reset controls remain compact. Tenant and workspace are visible at all times. Navigation is grouped by purpose: Overview, Device governance, Application security, Operations, and Administration. The dashboard includes a clickable module directory; each module page starts with its purpose, common actions, and why the module matters. Tenant/workspace and user/role administration are directly accessible. Access control and remote commands are also first-class destinations instead of being hidden in Settings.
 
 ## Login and session
 
-The unauthenticated view presents a DeviceGate MDM login card for the Customer-Managed PWA Governance Platform. The demo accepts any credentials and opens the console as a Customer IT Administrator. Sign out returns immediately to the login screen.
+The unauthenticated view presents a GateLogiq device-governance login card. The demo accepts any credentials and opens the console as a Customer IT Administrator. Sign out returns immediately to the login screen.
 
 ## UI-008 Pending approvals
 
@@ -37,7 +37,7 @@ Pending approvals  12                         Search / status filters
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-Selecting a row opens a review dialog with owner and Intune correlation evidence, masked serial, compliance freshness, and the separate approval and compliance states. Approve and Reject require an actionable justification of at least 12 characters before submission. The UI makes no access-grant promise from approval alone.
+Selecting **Review & Decide** on a request card opens a review dialog with owner and Intune correlation evidence, masked serial, and separate approval and compliance states. Approve and Reject require an actionable justification of at least 12 characters before submission. The UI makes no access-grant promise from approval alone.
 
 ## UI-009 Device details
 
@@ -59,7 +59,7 @@ The simulator previews the selected device in a mobile frame. Evaluation display
 
 ## UI-026 Audit explorer
 
-Append-only event table with time range, outcome, event type, actor, and correlation ID filters. Rows show immutable event ID, correlation ID, timestamp, actor identity and role, action, target, outcome, and reason. No edit or delete affordances are provided.
+Append-only event history with free-text search and an outcome filter. Each entry shows the action, result, reason, actor, target, and correlation ID; the ID can be copied. CSV and JSON exports are available. The current UI does not provide separate time-range or event-type filters, and it has no edit or delete affordances.
 
 ## Responsive and interaction notes
 

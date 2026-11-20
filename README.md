@@ -2,6 +2,20 @@
 
 The React/Vite client is at the repository root. The ASP.NET Core API is in `DeviceGovernancePlatform.Server`.
 
+## Project overview
+
+This project demonstrates how an organization can review managed devices before allowing access to protected work applications. The normal workflow is: sync device records, review an access request, check device compliance, then evaluate application access. Decisions and supported device actions are recorded in the audit history.
+
+### Portal modules
+
+- **Dashboard:** Workspace health, items needing attention, the access workflow, and a directory of portal modules.
+- **Device governance:** Device inventory and details, approval decisions, compliance status, and device activity signals.
+- **Application security:** Registered applications, a device access evaluator, and a confirmed remote-command interface.
+- **Operations:** MDM sync status, alerts, audit history, and CSV/JSON reports.
+- **Administration:** Tenant/workspace selection, administrator profile information, and links to available controls.
+
+Each module page includes a short guide explaining its purpose, common actions, and why it matters. The Compliance page also labels its example policy criteria; policy configuration is not available in the portal. The demo sign-in accepts any email and password. When the API is unavailable, the client uses browser-local sample data; demo actions do not contact Intune or change real devices. Application registration is currently held in client memory and is not saved by the API.
+
 ## Run locally
 
 Requires Node.js and the .NET 8 SDK. PostgreSQL and Docker are optional; if PostgreSQL is unavailable, the API uses persistent SQLite storage at `DeviceGovernancePlatform.Server/mdm_governance.db`.
@@ -32,6 +46,6 @@ Remote device commands are available through `POST /api/v1/admin/devices/{id}/co
 
 `GET /api/v1/admin/audit-logs/export?format=csv|json` downloads the current tenant/workspace audit records. Each valid export first appends an `AUDIT_EXPORT_GENERATED` event to the audit log.
 
-Device inventory and approval screens support live search across device name, owner email, operating system, approval state, and device ID, plus approval/compliance filters. The selected tenant and workspace scope the device lists, audit log, synchronization, and audit exports.
+The device inventory supports search by device name, owner, email, identifiers, platform, version, and approval state, plus an approval-status filter. The approval queue lists pending requests and supports search by device, owner, email, ID, workspace, and platform/version. Compliance status is shown in its own prioritized view; it does not have a separate filter control. The selected tenant and workspace scope the device lists, audit log, synchronization, and audit exports.
 
 Swagger and the API are unauthenticated development scaffolding: caller-supplied tenant, workspace, and user IDs do not establish identity or authorization, and audit actors can be spoofed. Before deployment, derive scope and actor identity from authenticated claims and add role-based authorization.
