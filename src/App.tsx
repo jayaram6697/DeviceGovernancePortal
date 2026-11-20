@@ -321,14 +321,28 @@ function createDemoDevices(workspace: DemoWorkspace): Device[] {
       ...(note ? { note } : {}),
     }
   }
-  const signals = () => [
-    signal('MDM cloud sync', 10, 'Microsoft Intune', MonitorCog),
-    signal('Hardware check-in', 12, 'Device inventory', Laptop),
-    signal('PWA authentication', 20, 'Corporate identity provider', Fingerprint),
-    signal('PWA foreground activity', 4, 'GateLogiq Workspace', Activity),
-    signal('Protected API request', 5, 'Governance API', LockKeyhole),
-    signal('Session start', 18, 'Corporate identity provider', ArrowUpRight),
-    signal('Explicit logout', null, 'Corporate identity provider', LogOut, 'No logout event recorded'),
+  const signals = (times: {
+    mdmSync: number
+    hardwareCheckIn: number
+    authentication: number
+    foregroundActivity: number
+    protectedApi: number
+    sessionStart: number
+    explicitLogout: number | null
+  }) => [
+    signal('MDM cloud sync', times.mdmSync, 'Microsoft Intune', MonitorCog),
+    signal('Hardware check-in', times.hardwareCheckIn, 'Device inventory', Laptop),
+    signal('PWA authentication', times.authentication, 'Corporate identity provider', Fingerprint),
+    signal('PWA foreground activity', times.foregroundActivity, 'GateLogiq Workspace', Activity),
+    signal('Protected API request', times.protectedApi, 'Governance API', LockKeyhole),
+    signal('Session start', times.sessionStart, 'Corporate identity provider', ArrowUpRight),
+    signal(
+      'Explicit logout',
+      times.explicitLogout,
+      'Corporate identity provider',
+      LogOut,
+      times.explicitLogout === null ? 'No logout event recorded' : undefined,
+    ),
   ]
   const enrolled = new Date(Date.now() - 150 * 86_400_000).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
 
@@ -352,7 +366,15 @@ function createDemoDevices(workspace: DemoWorkspace): Device[] {
       platform: 'iPadOS',
       version: '18.1',
       enrolled,
-      signals: signals(),
+      signals: signals({
+        mdmSync: 10,
+        hardwareCheckIn: 12,
+        authentication: 20,
+        foregroundActivity: 4,
+        protectedApi: 5,
+        sessionStart: 18,
+        explicitLogout: null,
+      }),
     },
     {
       recordId: 'demo-device-thinkpad',
@@ -362,7 +384,7 @@ function createDemoDevices(workspace: DemoWorkspace): Device[] {
       hardwareModel: 'ThinkPad X1 Carbon Gen 11',
       ownerUserId: 'demo-user-riley',
       lifecycleState: 'Active',
-      lastMdmSyncAt: timestamp(8),
+      lastMdmSyncAt: timestamp(17),
       owner: 'Riley Patel',
       email: 'riley.patel@acme.example',
       workspace,
@@ -373,7 +395,15 @@ function createDemoDevices(workspace: DemoWorkspace): Device[] {
       platform: 'Windows',
       version: '11 Pro 24H2',
       enrolled,
-      signals: signals(),
+      signals: signals({
+        mdmSync: 17,
+        hardwareCheckIn: 24,
+        authentication: 35,
+        foregroundActivity: 8,
+        protectedApi: 11,
+        sessionStart: 38,
+        explicitLogout: 360,
+      }),
     },
     {
       recordId: 'demo-device-galaxy-tab',
@@ -383,7 +413,7 @@ function createDemoDevices(workspace: DemoWorkspace): Device[] {
       hardwareModel: 'Galaxy Tab Active4',
       ownerUserId: 'demo-user-tariq',
       lifecycleState: 'Active',
-      lastMdmSyncAt: timestamp(45),
+      lastMdmSyncAt: timestamp(1590),
       owner: 'Tariq Khalid',
       email: 'tariq.khalid@acme.example',
       workspace,
@@ -394,7 +424,15 @@ function createDemoDevices(workspace: DemoWorkspace): Device[] {
       platform: 'Android',
       version: '14',
       enrolled,
-      signals: signals(),
+      signals: signals({
+        mdmSync: 1590,
+        hardwareCheckIn: 11520,
+        authentication: 12240,
+        foregroundActivity: 11520,
+        protectedApi: 11540,
+        sessionStart: 12245,
+        explicitLogout: 10080,
+      }),
     },
   ]
 }
@@ -464,15 +502,18 @@ function loadDemoWorkspaceData(tenant: string, workspace: DemoWorkspace): { devi
   }
 }
 
+const demoAuditExportColumns: (keyof AuditEvent)[] = ['eventId', 'date', 'time', 'actor', 'role', 'scope', 'action', 'target', 'outcome', 'reason', 'correlationId']
+const liveAuditExportColumns = ['AuditId', 'OccurredAtUtc', 'Actor', 'Action', 'TargetId', 'Result', 'ReasonCode', 'CorrelationId']
+const deviceInventoryExportColumns = ['Device ID', 'Device name', 'Owner', 'Email', 'Workspace', 'Platform', 'Approval', 'Compliance', 'Lifecycle']
+
 function downloadDemoAuditExport(events: AuditEvent[], format: 'csv' | 'json') {
-  const columns: (keyof AuditEvent)[] = ['eventId', 'date', 'time', 'actor', 'role', 'scope', 'action', 'target', 'outcome', 'reason', 'correlationId']
   const csvField = (value: string) => {
     const safeValue = /^[\t\r ]*[=+\-@]/.test(value) ? `'${value}` : value
     return `"${safeValue.replace(/"/g, '""')}"`
   }
   const content = format === 'json'
     ? JSON.stringify(events, null, 2)
-    : [columns.join(','), ...events.map((event) => columns.map((column) => csvField(String(event[column] ?? ''))).join(','))].join('\r\n')
+    : [demoAuditExportColumns.join(','), ...events.map((event) => demoAuditExportColumns.map((column) => csvField(String(event[column] ?? ''))).join(','))].join('\r\n')
   const blob = new Blob([content], { type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8' })
   const objectUrl = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -485,7 +526,6 @@ function downloadDemoAuditExport(events: AuditEvent[], format: 'csv' | 'json') {
 }
 
 function downloadDeviceInventoryExport(devices: Device[]) {
-  const columns = ['Device ID', 'Device name', 'Owner', 'Email', 'Workspace', 'Platform', 'Approval', 'Compliance', 'Lifecycle']
   const field = (value: string) => {
     const safeValue = /^[\t\r ]*[=+\-@]/.test(value) ? `'${value}` : value
     return `"${safeValue.replace(/"/g, '""')}"`
@@ -494,7 +534,7 @@ function downloadDeviceInventoryExport(devices: Device[]) {
     device.id, device.name, device.owner, device.email, device.workspace, device.platform,
     device.approval, device.compliance, device.lifecycleState,
   ])
-  const content = [columns, ...rows].map((row) => row.map(field).join(',')).join('\r\n')
+  const content = [deviceInventoryExportColumns, ...rows].map((row) => row.map(field).join(',')).join('\r\n')
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
   const objectUrl = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -1315,7 +1355,7 @@ function App() {
           {screen === 'scope' && <WorkspaceTenantsPage tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} demoWorkspace={demoWorkspace} onTenantChange={switchTenant} onWorkspaceChange={(next) => isDemoMode ? switchDemoWorkspace(next as DemoWorkspace) : setWorkspace(next)} />}
           {screen === 'approvals' && <ApprovalsPage devices={devices} workspace={visibleWorkspace} isDemoMode={isDemoMode} onReview={(device) => setReviewDeviceId(device.id)} />}
           {screen === 'devices' && <DevicesPage devices={devices} isDemoMode={isDemoMode} initialFilter={deviceInventoryFilter} onOpenDevice={openDevice} />}
-          {screen === 'intune' && <IntunePage devices={devices} latestSyncAt={latestMdmSyncAt} syncIsFresh={isMdmSyncFresh} isSyncing={isSyncing} isDemoMode={isDemoMode} onSync={() => void runIntuneSync()} />}
+          {screen === 'intune' && <IntunePage devices={devices} tenant={tenant} workspace={visibleWorkspace} latestSyncAt={latestMdmSyncAt} syncIsFresh={isMdmSyncFresh} isSyncing={isSyncing} isDemoMode={isDemoMode} onSync={() => void runIntuneSync()} />}
           {screen === 'compliance' && <CompliancePage devices={devices} isDemoMode={isDemoMode} onOpenDevice={openDevice} />}
           {screen === 'applications' && <ApplicationsPage applications={applications} isDemoMode={isDemoMode} onAdd={(application) => setApplications((current) => [application, ...current])} onOpenAccessTest={() => navigate('access')} />}
           {screen === 'detail' && detailLoading && <div className="loading-state" role="status">Loading device details…</div>}
@@ -1502,7 +1542,7 @@ const moduleGuidance: Record<string, ModuleGuide> = {
   },
   'MDM Integrations': {
     purpose: 'Shows device synchronization health and provides the available inventory refresh action.',
-    actions: ['Check the last update and data freshness', 'Review how many devices are in scope', 'Request an inventory sync'],
+    actions: ['Review sync status and data freshness', 'Confirm the tenant and workspace in scope', 'Refresh the inventory or simulate a demo sync'],
     why: 'Current MDM data helps keep device inventory and compliance decisions accurate.',
   },
   'Device activity': {
@@ -1532,7 +1572,7 @@ const moduleGuidance: Record<string, ModuleGuide> = {
   },
   'User and Role Administration': {
     purpose: 'Shows the signed-in administrator and a plain-language summary of permissions.',
-    actions: ['Review the active account and workspace', 'See administrator responsibilities', 'Understand which sign-in details are not verified'],
+    actions: ['Review the active account and workspace', 'Compare sample view-only and administrator responsibilities', 'Understand which sign-in details are not verified'],
     why: 'Administrators should understand which actions their role is responsible for.',
   },
   'Tenant and Workspace Management': {
@@ -1556,11 +1596,14 @@ function PageHeading({ eyebrow, title, description, children }: { eyebrow: strin
   const guidance = moduleGuidance[title]
   return <>
     <div className="page-heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div><div className="heading-actions">{children}</div></div>
-    {guidance && <section className="module-guidance" aria-label={`${title} module guide`}>
-      <div className="module-guide-block"><span className="module-guide-label">PURPOSE</span><p>{guidance.purpose}</p></div>
-      <div className="module-guide-block"><span className="module-guide-label">WHAT YOU CAN DO</span><ul>{guidance.actions.map((action) => <li key={action}>{action}</li>)}</ul></div>
-      <div className="module-guide-block"><span className="module-guide-label">WHY IT MATTERS</span><p>{guidance.why}</p></div>
-    </section>}
+    {guidance && <details className="module-guidance" aria-label={`${title} module guide`}>
+      <summary className="module-guidance-summary"><span>Quick guide</span><small>Purpose, actions, and why it matters</small><ChevronDown size={16} /></summary>
+      <div className="module-guidance-grid">
+        <div className="module-guide-block"><span className="module-guide-label">PURPOSE</span><p>{guidance.purpose}</p></div>
+        <div className="module-guide-block"><span className="module-guide-label">WHAT YOU CAN DO</span><ul>{guidance.actions.map((action) => <li key={action}>{action}</li>)}</ul></div>
+        <div className="module-guide-block"><span className="module-guide-label">WHY IT MATTERS</span><p>{guidance.why}</p></div>
+      </div>
+    </details>}
   </>
 }
 
@@ -1620,8 +1663,11 @@ function DashboardPage({
         <button type="button" onClick={() => onNavigate('access')}><span>04</span><strong>Evaluate app access</strong><small>Allow or deny based on the checks</small><ChevronRight size={15} /></button>
       </div>
     </section>
-    <section className="module-catalog" aria-labelledby="module-catalog-title">
-      <div className="module-catalog-heading"><span className="executive-kicker">PORTAL GUIDE</span><h2 id="module-catalog-title">Explore the modules</h2><p>Choose a section to see the records and actions it provides.</p></div>
+    <details className="module-catalog" aria-labelledby="module-catalog-title">
+      <summary className="module-catalog-summary">
+        <div className="module-catalog-heading"><span className="executive-kicker">PORTAL GUIDE</span><h2 id="module-catalog-title">Explore the modules</h2><p>Choose a section to see the records and actions it provides.</p></div>
+        <ChevronDown size={18} />
+      </summary>
       <div className="module-catalog-grid">
         {navSections.map((section) => <section className="module-catalog-group" key={section.title} aria-label={section.title}>
           <h3>{section.title}</h3>
@@ -1634,7 +1680,7 @@ function DashboardPage({
           </div>
         </section>)}
       </div>
-    </section>
+    </details>
     <div className="manager-two-column">
       <section className="panel manager-panel">
         <div className="panel-heading"><div><h2>Needs attention</h2><p>Start with pending decisions and device posture issues.</p></div><button type="button" className="button button-secondary" onClick={() => onNavigate('alerts')}>View alerts</button></div>
@@ -1739,7 +1785,7 @@ function AlertsPage({
     </PageHeading>
     <div className="manager-demo-note"><Bell size={16} /><span>Alerts shown here are generated from currently loaded device and audit data. Email delivery and alert policies are not configured in this prototype.</span></div>
     <section className="panel manager-panel">
-      <div className="panel-heading"><div><h2>Current alerts</h2><p>{alerts.length} item{alerts.length === 1 ? '' : 's'} need review or acknowledgement.</p></div><span className="source-chip">{hasUnread ? 'Unread' : 'Reviewed'}</span></div>
+      <div className="panel-heading"><div><h2>Current alerts</h2><p>{`${alerts.length} ${alerts.length === 1 ? 'item' : 'items'} need review or acknowledgement.`}</p></div><span className="source-chip">{hasUnread ? 'Unread' : 'Reviewed'}</span></div>
       {alerts.map((alert) => <button type="button" className="manager-alert-row" key={alert.id} onClick={() => onOpen(alert)}>
         <span className="manager-alert-icon">{alert.icon}</span><span><strong>{alert.title}</strong><small>{alert.description}</small></span><ChevronRight size={17} />
       </button>)}
@@ -1764,14 +1810,23 @@ function ReportsPage({
   onExportInventory: () => void
 }) {
   const compliantCount = devices.filter((device) => device.compliance === 'Compliant').length
+  const auditColumns = isDemoMode ? demoAuditExportColumns : liveAuditExportColumns
   return <>
     <PageHeading eyebrow="GOVERNANCE REPORTING" title="Reports" description="Download scoped inventory and audit evidence for review.">
       <span className="source-chip">{isDemoMode ? 'Sample data' : 'Current workspace'}</span>
     </PageHeading>
+    <section className="report-export-toolbar" aria-label="Export reports">
+      <div><span className="executive-kicker">AVAILABLE EXPORTS</span><p>Download records for the selected workspace.</p></div>
+      <div className="report-export-actions">
+        <button type="button" className="button button-primary" onClick={onExportInventory}><Download size={15} /> Download inventory CSV</button>
+        <button type="button" className="button button-secondary" onClick={() => onExportAudit('csv')} disabled={exportingAudit}><Download size={14} /> Audit CSV</button>
+        <button type="button" className="button button-secondary" onClick={() => onExportAudit('json')} disabled={exportingAudit}><Download size={14} /> Audit JSON</button>
+      </div>
+    </section>
     <div className="manager-demo-note"><FileClock size={16} /><span>Exports are limited to the currently selected tenant and workspace. Demo exports contain sample records.</span></div>
     <div className="manager-report-grid">
-      <article className="panel manager-report-card"><span className="manager-report-icon"><Smartphone size={19} /></span><h2>Device inventory</h2><p>{devices.length} devices · {compliantCount} compliant. Includes approval, compliance, and lifecycle status.</p><button type="button" className="button button-primary" onClick={onExportInventory}><Download size={15} /> Download inventory CSV</button></article>
-      <article className="panel manager-report-card"><span className="manager-report-icon"><FileClock size={19} /></span><h2>Audit evidence</h2><p>{audit.length} events. Download records with actor, action, result, reason, and correlation ID.</p><div className="export-actions"><button type="button" className="button button-secondary" onClick={() => onExportAudit('csv')} disabled={exportingAudit}><Download size={14} /> CSV</button><button type="button" className="button button-secondary" onClick={() => onExportAudit('json')} disabled={exportingAudit}><Download size={14} /> JSON</button></div></article>
+      <article className="panel manager-report-card"><span className="manager-report-icon"><Smartphone size={19} /></span><h2>Device inventory</h2><p>{devices.length} devices · {compliantCount} compliant. Includes approval, compliance, and lifecycle status.</p><div className="report-field-preview"><span>CSV columns</span><div className="report-column-list">{deviceInventoryExportColumns.map((column) => <span key={column}>{column}</span>)}</div></div></article>
+      <article className="panel manager-report-card"><span className="manager-report-icon"><FileClock size={19} /></span><h2>Audit evidence</h2><p>{audit.length} events. Includes actor, action, result, reason, and correlation ID.</p><div className="report-field-preview"><span>{isDemoMode ? 'CSV / JSON fields' : 'CSV columns'}</span><div className="report-column-list">{auditColumns.map((column) => <span key={column}>{column}</span>)}</div></div></article>
     </div>
   </>
 }
@@ -1928,15 +1983,20 @@ function IdentityRolesPage({
       </div>
     </section>
     <section className="executive-permissions">
-      <div className="executive-section-heading"><div><span className="executive-kicker">ACCESS AT A GLANCE</span><h2>Permissions breakdown</h2><p>What this role can do in plain English.</p></div><span className="source-chip"><LockKeyhole size={14} /> Administrator</span></div>
-      <ul className="executive-permission-list">
-        <li><CheckCircle2 size={18} /><span><strong>Review access requests</strong><small>Approve or reject devices requesting workspace access.</small></span></li>
-        <li><CheckCircle2 size={18} /><span><strong>Monitor device safety</strong><small>See whether managed devices meet company security rules.</small></span></li>
-        <li><CheckCircle2 size={18} /><span><strong>Protect company devices</strong><small>Request a lock, retirement, or wipe with a recorded reason.</small></span></li>
-        <li><CheckCircle2 size={18} /><span><strong>Keep an audit trail</strong><small>Review administrative activity and export evidence.</small></span></li>
-      </ul>
+      <div className="executive-section-heading"><div><span className="executive-kicker">ILLUSTRATIVE ACCESS MODEL</span><h2>Role responsibility comparison</h2><p>Examples only; actual role permissions are not enforced in this prototype.</p></div><span className="source-chip"><LockKeyhole size={14} /> Sample</span></div>
+      <div className="identity-role-table-wrap">
+        <table className="identity-role-table" aria-label="Illustrative role responsibility comparison">
+          <thead><tr><th scope="col">Responsibility</th><th scope="col">Device Manager · View only</th><th scope="col">Customer IT Administrator · Sample</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Access requests</th><td>View request status</td><td>Approve or reject with a reason</td></tr>
+            <tr><th scope="row">Device safety</th><td>View compliance posture</td><td>Review device security</td></tr>
+            <tr><th scope="row">Device protection</th><td>No action access</td><td>Request lock, retire, or wipe</td></tr>
+            <tr><th scope="row">Audit trail</th><td>View activity</td><td>Review and export evidence</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
-    <p className="demo-data-note"><Shield size={15} />This profile is informational; this build does not authenticate users or enforce role-based permissions.</p>
+    <p className="demo-data-note"><Shield size={15} />This profile and role comparison are illustrative; this build does not authenticate users or enforce role-based permissions.</p>
   </>
 }
 
@@ -1997,6 +2057,8 @@ function WorkspaceTenantsPage({
 
 function IntunePage({
   devices,
+  tenant,
+  workspace,
   latestSyncAt,
   syncIsFresh,
   isSyncing,
@@ -2004,6 +2066,8 @@ function IntunePage({
   onSync,
 }: {
   devices: Device[]
+  tenant: string
+  workspace: string
   latestSyncAt: string | null
   syncIsFresh: boolean
   isSyncing: boolean
@@ -2027,6 +2091,7 @@ function IntunePage({
         <div title="How recently the device records were updated."><span>Last updated</span><strong>{formatRelativeTime(latestSyncAt) ?? 'Not recorded'}</strong></div>
         <div title="Number of device records in the selected workspace."><span>Devices in inventory</span><strong>{devices.length.toLocaleString()}</strong></div>
         <div title="Device records should be updated at least once every 60 minutes."><span>Data freshness</span><strong>{isDemoMode ? 'Sample data' : syncIsFresh ? 'Within 60 minutes' : 'Over 60 minutes'}</strong></div>
+        <div title="The tenant and workspace represented by this inventory."><span>Sync scope</span><strong>{workspace}</strong><small>{tenant}</small></div>
       </div>
       <div className="sync-hero-actions">
         <button className="button button-primary" title={isDemoMode ? 'Refreshes sample timestamps only; it does not contact Microsoft Intune.' : 'Request a device inventory refresh.'} onClick={onSync} disabled={isSyncing}>
@@ -2229,20 +2294,25 @@ function DevicesPage({ devices, isDemoMode, initialFilter, onOpenDevice }: {
       <div className="executive-section-heading"><div><span className="executive-kicker">DEVICE OVERVIEW</span><h2>Your managed devices</h2><p>Owner, model, and access readiness at a glance.</p></div><span className="source-chip" title={isDemoMode ? 'Representative sample records for this workspace.' : 'Live records for the selected workspace.'}><MonitorCog size={14} />{isDemoMode ? 'Sample inventory' : 'Current inventory'}</span></div>
       <div className="table-toolbar executive-device-toolbar"><label className="search-field" title="Find devices by name, owner, email, platform, or ID."><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search devices or owners" /></label><label className="filter-select" title="Show devices with a selected approval status."><ListFilter size={15} /><select value={state} onChange={(event) => setState(event.target.value)} aria-label="Filter by approval state"><option>All approval states</option><option>Pending</option><option>Approved</option><option>Rejected</option><option>Suspended</option><option>Revoked</option></select><ChevronDown size={14} /></label></div>
       <div className="device-card-grid">{filtered.map((device) => {
-        const latestActivity = device.signals.reduce<string | null>((latest, signal) =>
-          signal.occurredAt && (!latest || new Date(signal.occurredAt) > new Date(latest)) ? signal.occurredAt : latest, null)
+        const latestActivity = device.signals
+          .filter((signal) => signal.label !== 'MDM cloud sync')
+          .reduce<string | null>((latest, signal) =>
+            signal.occurredAt && (!latest || new Date(signal.occurredAt) > new Date(latest)) ? signal.occurredAt : latest, null)
         const initials = device.owner.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase()
-        const isAuthorized = device.approval === 'Approved' && device.compliance === 'Compliant' && device.lifecycleState === 'Active'
         return <article className="device-card" key={device.recordId}>
           <div className="device-card-top"><DeviceGlyph kind={device.kind} /><span className="device-platform-tag">{device.platform} {device.version}</span></div>
           <div className="device-card-title"><strong>{device.name}</strong><span>{device.hardwareModel ?? 'Hardware model not provided'} · {device.id}</span></div>
           <div className="device-card-owner"><span className="owner-avatar">{initials}</span><span><strong>{device.owner}</strong><small>{device.email}</small></span></div>
-          <div className="device-card-status">{isAuthorized ? <span className="authorized-pill" title="Approved, compliant, and active in this workspace."><CheckCircle2 size={14} />Ready for access</span> : <><ApprovalPill state={device.approval} /><CompliancePill state={device.compliance} /></>}</div>
+          <div className="device-card-status"><ApprovalPill state={device.approval} /><CompliancePill state={device.compliance} /></div>
+          <div className="device-core-signals" aria-label="Key device timestamps">
+            <div><span>Last MDM sync</span><strong>{formatRelativeTime(device.lastMdmSyncAt) ?? 'Not recorded'}</strong></div>
+            <div><span>Latest device activity</span><strong>{formatRelativeTime(latestActivity) ?? 'Not recorded'}</strong></div>
+          </div>
           <details className="device-signals-disclosure">
-            <summary title="Expand to see the individual device activity dates."><span>Recent activity</span><ChevronDown size={14} /></summary>
+            <summary title="Expand to see every individual device and session signal."><span>Full activity telemetry</span><small>{device.signals.length} signals</small><ChevronDown size={14} /></summary>
             <div className="device-signals-list">{device.signals.map((signal) => <div className="device-signal-item" key={signal.label}><span>{friendlySignalTitle(signal.label)}</span><strong>{signal.value ?? 'Not recorded'}</strong></div>)}</div>
           </details>
-          <div className="device-card-footer"><span className="device-last-activity" title="Most recent activity reported for this device."><Activity size={14} />{formatRelativeTime(latestActivity) ?? 'No recent activity'}</span><button className="button button-tertiary" title="See the device status, activity dates, and identifiers." onClick={() => onOpenDevice(device)}>View details <ChevronRight size={14} /></button></div>
+          <div className="device-card-footer"><button className="button button-tertiary" title="See the device status, activity dates, and identifiers." onClick={() => onOpenDevice(device)}>View details <ChevronRight size={14} /></button></div>
         </article>
       })}{filtered.length === 0 && <div className="empty-devices">No devices match these filters.</div>}</div>
       <div className="table-footer"><span>Showing <strong>{filtered.length}</strong> device records {isDemoMode ? 'from the sample inventory' : 'in this workspace'}</span></div>
