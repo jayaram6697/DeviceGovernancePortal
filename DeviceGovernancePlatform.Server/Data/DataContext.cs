@@ -54,6 +54,30 @@ public sealed class DataContext(DbContextOptions<DataContext> options) : DbConte
                     "ALTER TABLE \"DeviceMasterRecords\" ADD COLUMN \"LifecycleState\" TEXT NOT NULL DEFAULT 'Active';",
                     cancellationToken);
             }
+
+            await using var indexCommand = connection.CreateCommand();
+            indexCommand.CommandText = """
+                SELECT COUNT(*)
+                FROM (
+                    SELECT TenantId, WorkspaceId, DisplayId
+                    FROM DeviceMasterRecords
+                    GROUP BY TenantId, WorkspaceId, DisplayId
+                    HAVING COUNT(*) > 1
+                );
+                """;
+            var duplicateDisplayIdGroups = Convert.ToInt64(await indexCommand.ExecuteScalarAsync(cancellationToken));
+            if (duplicateDisplayIdGroups > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot enforce unique device IDs: {duplicateDisplayIdGroups} duplicate ID group(s) exist in the SQLite database.");
+            }
+
+            indexCommand.CommandText = """
+                CREATE UNIQUE INDEX IF NOT EXISTS "UX_DeviceMasterRecords_TenantId_WorkspaceId_DisplayId"
+                    ON "DeviceMasterRecords" ("TenantId", "WorkspaceId", "DisplayId");
+                DROP INDEX IF EXISTS "IX_DeviceMasterRecords_TenantId_WorkspaceId_DisplayId";
+                """;
+            await indexCommand.ExecuteNonQueryAsync(cancellationToken);
         }
         finally
         {
@@ -69,7 +93,9 @@ public sealed class DataContext(DbContextOptions<DataContext> options) : DbConte
         modelBuilder.Entity<DeviceMasterRecord>(entity =>
         {
             entity.HasKey(device => device.Id);
-            entity.HasIndex(device => new { device.TenantId, device.WorkspaceId, device.DisplayId });
+            entity.HasIndex(device => new { device.TenantId, device.WorkspaceId, device.DisplayId })
+                .HasDatabaseName("UX_DeviceMasterRecords_TenantId_WorkspaceId_DisplayId")
+                .IsUnique();
             entity.Property(device => device.ApprovalState).HasConversion<string>();
             entity.Property(device => device.ComplianceState).HasConversion<string>();
             entity.Property(device => device.LifecycleState).HasConversion<string>().HasDefaultValue(DeviceLifecycleState.Active);

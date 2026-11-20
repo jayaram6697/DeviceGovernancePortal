@@ -172,7 +172,9 @@ namespace DeviceGovernancePlatform.Server.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId", "WorkspaceId", "DisplayId");
+                    b.HasIndex("TenantId", "WorkspaceId", "DisplayId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_DeviceMasterRecords_TenantId_WorkspaceId_DisplayId");
 
                     b.ToTable("DeviceMasterRecords");
                 });

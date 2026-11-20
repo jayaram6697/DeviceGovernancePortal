@@ -39,6 +39,7 @@ import type { AccessEvaluationResponse, ApiAuditRecord, ApiDeviceRecord, RemoteC
 type ApprovalState = 'Pending' | 'Approved' | 'Rejected' | 'Suspended' | 'Revoked'
 type ComplianceState = 'Compliant' | 'Non-compliant' | 'Stale'
 type Screen = 'dashboard' | 'devices' | 'approvals' | 'compliance' | 'applications' | 'intune' | 'signals' | 'audit' | 'alerts' | 'reports' | 'settings' | 'identity' | 'scope' | 'access' | 'commands' | 'detail'
+type DeviceInventoryFilter = 'all' | 'pending' | 'review' | 'ready'
 type DeviceKind = 'Laptop' | 'Phone' | 'Tablet'
 type DemoWorkspace = 'Engineering' | 'Operations UAE' | 'Field Logistics'
 type ManagedApplication = {
@@ -649,6 +650,7 @@ function App() {
   demoWorkspaceRef.current = demoWorkspace
   const [demoDataScope, setDemoDataScope] = useState<{ tenant: string; workspace: DemoWorkspace } | null>(null)
   const [screen, setScreen] = useState<Screen>('dashboard')
+  const [deviceInventoryFilter, setDeviceInventoryFilter] = useState<DeviceInventoryFilter>('all')
   const [devices, setDevices] = useState<Device[]>([])
   const [applications, setApplications] = useState<ManagedApplication[]>(sampleApplications)
   const [audit, setAudit] = useState<AuditEvent[]>([])
@@ -1121,7 +1123,8 @@ function App() {
     window.setTimeout(() => setNotice(''), 5000)
   }
 
-  function navigate(next: Screen) {
+  function navigate(next: Screen, deviceFilter: DeviceInventoryFilter = 'all') {
+    if (next === 'devices') setDeviceInventoryFilter(deviceFilter)
     setScreen(next)
     setMobileNavOpen(false)
   }
@@ -1311,7 +1314,7 @@ function App() {
           {screen === 'identity' && <IdentityRolesPage email={userEmail} tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} />}
           {screen === 'scope' && <WorkspaceTenantsPage tenant={tenant} workspace={visibleWorkspace} isDemoMode={isDemoMode} demoWorkspace={demoWorkspace} onTenantChange={switchTenant} onWorkspaceChange={(next) => isDemoMode ? switchDemoWorkspace(next as DemoWorkspace) : setWorkspace(next)} />}
           {screen === 'approvals' && <ApprovalsPage devices={devices} workspace={visibleWorkspace} isDemoMode={isDemoMode} onReview={(device) => setReviewDeviceId(device.id)} />}
-          {screen === 'devices' && <DevicesPage devices={devices} isDemoMode={isDemoMode} onOpenDevice={openDevice} />}
+          {screen === 'devices' && <DevicesPage devices={devices} isDemoMode={isDemoMode} initialFilter={deviceInventoryFilter} onOpenDevice={openDevice} />}
           {screen === 'intune' && <IntunePage devices={devices} latestSyncAt={latestMdmSyncAt} syncIsFresh={isMdmSyncFresh} isSyncing={isSyncing} isDemoMode={isDemoMode} onSync={() => void runIntuneSync()} />}
           {screen === 'compliance' && <CompliancePage devices={devices} isDemoMode={isDemoMode} onOpenDevice={openDevice} />}
           {screen === 'applications' && <ApplicationsPage applications={applications} isDemoMode={isDemoMode} onAdd={(application) => setApplications((current) => [application, ...current])} onOpenAccessTest={() => navigate('access')} />}
@@ -1593,20 +1596,20 @@ function DashboardPage({
   alertCount: number
   tenant: string
   workspace: string
-  onNavigate: (screen: Screen) => void
+  onNavigate: (screen: Screen, deviceFilter?: DeviceInventoryFilter) => void
 }) {
   const pendingCount = devices.filter((device) => device.approval === 'Pending').length
-  const attentionCount = devices.filter((device) => device.compliance !== 'Compliant').length
+  const needsReviewCount = devices.filter((device) => device.approval === 'Pending' || device.compliance !== 'Compliant').length
   const activeCount = devices.filter((device) => device.lifecycleState === 'Active').length
   return <>
     <PageHeading eyebrow="GOVERNANCE OVERVIEW" title="Dashboard" description={`A clear overview of ${tenant} · ${workspace}.`}>
       <button type="button" className="button button-primary" onClick={() => onNavigate('devices')}><Smartphone size={15} /> View devices</button>
     </PageHeading>
     <div className="manager-metric-grid">
-      <article className="manager-metric"><span className="manager-metric-icon"><Smartphone size={18} /></span><span>Devices</span><strong>{devices.length}</strong><small>{activeCount} active in this workspace</small></article>
-      <article className="manager-metric"><span className="manager-metric-icon manager-metric-warning"><Clock3 size={18} /></span><span>Pending approvals</span><strong>{pendingCount}</strong><small>Waiting for an administrator</small></article>
-      <article className="manager-metric"><span className="manager-metric-icon manager-metric-danger"><ShieldAlert size={18} /></span><span>Compliance attention</span><strong>{attentionCount}</strong><small>Non-compliant or stale records</small></article>
-      <article className="manager-metric"><span className="manager-metric-icon manager-metric-info"><Bell size={18} /></span><span>Open alerts</span><strong>{alertCount}</strong><small>Based on current workspace signals</small></article>
+      <button type="button" className="manager-metric" title="Open the full device inventory." onClick={() => onNavigate('devices', 'all')}><span className="manager-metric-icon"><Smartphone size={18} /></span><span>Devices</span><strong>{devices.length}</strong><small>{activeCount} active in this workspace · View inventory</small></button>
+      <button type="button" className="manager-metric" title="Filter the inventory to devices waiting for approval." onClick={() => onNavigate('devices', 'pending')}><span className="manager-metric-icon manager-metric-warning"><Clock3 size={18} /></span><span>Pending approvals</span><strong>{pendingCount}</strong><small>Waiting for an administrator · Filter devices</small></button>
+      <button type="button" className="manager-metric" title="Filter the inventory to devices pending approval or requiring compliance attention." onClick={() => onNavigate('devices', 'review')}><span className="manager-metric-icon manager-metric-danger"><ShieldAlert size={18} /></span><span>Needs review</span><strong>{needsReviewCount}</strong><small>Pending approval or compliance issue · Filter devices</small></button>
+      <button type="button" className="manager-metric" title="Open alerts for the current workspace." onClick={() => onNavigate('alerts')}><span className="manager-metric-icon manager-metric-info"><Bell size={18} /></span><span>Open alerts</span><strong>{alertCount}</strong><small>Based on current workspace signals · View alerts</small></button>
     </div>
     <section className="manager-workflow" aria-label="How device governance works">
       <div className="manager-workflow-heading"><h2>How device access is governed</h2><p>Four steps connect device management to protected application access.</p></div>
@@ -1637,7 +1640,7 @@ function DashboardPage({
         <div className="panel-heading"><div><h2>Needs attention</h2><p>Start with pending decisions and device posture issues.</p></div><button type="button" className="button button-secondary" onClick={() => onNavigate('alerts')}>View alerts</button></div>
         {devices.filter((device) => device.approval === 'Pending' || device.compliance !== 'Compliant').slice(0, 5).map((device) =>
           <div className="manager-list-row" key={device.recordId}><DeviceGlyph kind={device.kind} /><span><strong>{device.name}</strong><small>{device.owner} · {device.workspace}</small></span><span className="manager-row-status">{device.approval === 'Pending' ? 'Approval pending' : device.compliance}</span></div>)}
-        {pendingCount + attentionCount === 0 && <p className="manager-empty">No devices currently need attention.</p>}
+        {needsReviewCount === 0 && <p className="manager-empty">No devices currently need attention.</p>}
       </section>
       <section className="panel manager-panel">
         <div className="panel-heading"><div><h2>Recent audit activity</h2><p>Administrative and access events for this workspace.</p></div><button type="button" className="button button-secondary" onClick={() => onNavigate('audit')}>Open audit</button></div>
@@ -2194,23 +2197,33 @@ function CompliancePill({ state }: { state: ComplianceState }) {
   return <span className={`compliance-pill compliance-${tone}`} title={title}><Icon size={13} />{state}</span>
 }
 
-function DevicesPage({ devices, isDemoMode, onOpenDevice }: {
+function DevicesPage({ devices, isDemoMode, initialFilter, onOpenDevice }: {
   devices: Device[]
   isDemoMode: boolean
+  initialFilter: DeviceInventoryFilter
   onOpenDevice: (device: Device) => void
 }) {
   const [search, setSearch] = useState('')
   const [state, setState] = useState('All approval states')
+  const [filter, setFilter] = useState(initialFilter)
+  useEffect(() => setFilter(initialFilter), [initialFilter])
+  const readyCount = devices.filter((device) =>
+    device.approval === 'Approved' && device.compliance === 'Compliant' && device.lifecycleState === 'Active').length
+  const reviewCount = devices.filter((device) =>
+    device.approval === 'Pending' || device.compliance !== 'Compliant').length
   const filtered = devices.filter((device) =>
     `${device.name} ${device.owner} ${device.email} ${device.id} ${device.intuneId} ${device.platform} ${device.version} ${device.approval}`
       .toLowerCase().includes(search.toLowerCase())
-      && (state === 'All approval states' || device.approval === state))
+      && (state === 'All approval states' || device.approval === state)
+      && (filter !== 'pending' || device.approval === 'Pending')
+      && (filter !== 'review' || device.approval === 'Pending' || device.compliance !== 'Compliant')
+      && (filter !== 'ready' || (device.approval === 'Approved' && device.compliance === 'Compliant' && device.lifecycleState === 'Active')))
   return <>
     <PageHeading eyebrow="MODULE 3 / MANAGED DEVICES" title="Device inventory" description="Find company devices and check their owners, approvals, and security status." />
     <section className="executive-summary-grid">
-      <article title="Number of device records in the selected workspace."><span className="summary-icon summary-blue"><Smartphone size={18} /></span><span>Devices in view</span><strong>{devices.length}</strong><small>{isDemoMode ? 'Representative sample' : 'Current workspace'}</small></article>
-      <article title="Approved, compliant devices that are still active."><span className="summary-icon summary-green"><ShieldCheck size={18} /></span><span>Ready for access</span><strong>{devices.filter((device) => device.approval === 'Approved' && device.compliance === 'Compliant' && device.lifecycleState === 'Active').length}</strong><small>Approved and meeting policy</small></article>
-      <article title="Devices waiting for approval or needing a security update."><span className="summary-icon summary-amber"><Clock3 size={18} /></span><span>Needs review</span><strong>{devices.filter((device) => device.approval === 'Pending' || device.compliance !== 'Compliant').length}</strong><small>Approval or safety action needed</small></article>
+      <button type="button" className={`inventory-summary-card ${filter === 'all' ? 'inventory-summary-active' : ''}`} aria-pressed={filter === 'all'} title="Show every device in the selected workspace." onClick={() => setFilter('all')}><span className="summary-icon summary-blue"><Smartphone size={18} /></span><span>Devices in view</span><strong>{devices.length}</strong><small>{isDemoMode ? 'Representative sample · Show all' : 'Current workspace · Show all'}</small></button>
+      <button type="button" className={`inventory-summary-card ${filter === 'ready' ? 'inventory-summary-active' : ''}`} aria-pressed={filter === 'ready'} title="Show devices approved, compliant, and active for access." onClick={() => setFilter('ready')}><span className="summary-icon summary-green"><ShieldCheck size={18} /></span><span>Ready for access</span><strong>{readyCount}</strong><small>Approved and meeting policy · Quick filter</small></button>
+      <button type="button" className={`inventory-summary-card ${filter === 'review' ? 'inventory-summary-active' : ''}`} aria-pressed={filter === 'review'} title="Show devices awaiting approval or requiring compliance attention." onClick={() => setFilter('review')}><span className="summary-icon summary-amber"><Clock3 size={18} /></span><span>Needs review</span><strong>{reviewCount}</strong><small>Approval or safety action needed · Quick filter</small></button>
     </section>
     <section className="executive-list-panel">
       <div className="executive-section-heading"><div><span className="executive-kicker">DEVICE OVERVIEW</span><h2>Your managed devices</h2><p>Owner, model, and access readiness at a glance.</p></div><span className="source-chip" title={isDemoMode ? 'Representative sample records for this workspace.' : 'Live records for the selected workspace.'}><MonitorCog size={14} />{isDemoMode ? 'Sample inventory' : 'Current inventory'}</span></div>
